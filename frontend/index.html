@@ -368,12 +368,15 @@ function aggregate() {
     dailyR[date] = (dailyR[date] || 0) + e.realized;
     dailyT[date] = (dailyT[date] || 0) + 1;
     if (!perMarket[e.market]) {
-      perMarket[e.market] = { market: e.market, realized: 0, trades: 0, wins: 0, losses: 0 };
+      perMarket[e.market] = { market: e.market, realized: 0, trades: 0, wins: 0, losses: 0, buy_funds: 0, sell_funds: 0 };
     }
     const pm = perMarket[e.market];
     pm.realized += e.realized;
     pm.trades += 1;
-    if (e.side === "ask") {
+    if (e.side === "bid") {
+      pm.buy_funds += e.executed_funds + e.paid_fee;
+    } else if (e.side === "ask") {
+      pm.sell_funds += e.executed_funds - e.paid_fee;
       if (e.realized > 0) { wins.push(e.realized); pm.wins += 1; }
       else if (e.realized < 0) { losses.push(e.realized); pm.losses += 1; }
     }
@@ -383,6 +386,11 @@ function aggregate() {
   const avgWin = wins.length > 0 ? wins.reduce((a, b) => a + b, 0) / wins.length : 0;
   const avgLoss = losses.length > 0 ? losses.reduce((a, b) => a + b, 0) / losses.length : 0;
   const profitFactor = avgLoss !== 0 ? avgWin / Math.abs(avgLoss) : 0;
+  let total_buy = 0, total_sell = 0;
+  for (const pm of Object.values(perMarket)) {
+    total_buy += pm.buy_funds;
+    total_sell += pm.sell_funds;
+  }
 
   // daily cumulative (필터된 거래만으로 다시 누적)
   const dates = Object.keys(dailyR).sort();
@@ -423,6 +431,7 @@ function aggregate() {
   return {
     trades_count: filtered.length,
     realized_total, unrealized_total,
+    total_buy, total_sell,
     daily, daily_trades,
     per_market: Object.values(perMarket),
     positions: filteredPositions,
@@ -579,10 +588,14 @@ function renderSummary(d) {
   const winRatePct = (d.win_rate * 100).toFixed(1) + "%";
   const pfText = d.profit_factor > 0 ? d.profit_factor.toFixed(2) : "-";
   const wlText = `${d.win_count} / ${d.loss_count}`;
+  const netCash = (d.total_sell || 0) - (d.total_buy || 0);
   const cards = [
-    ["총 손익", total],
-    ["실현 손익", d.realized_total],
+    ["누적 손익 (총)", total],
+    ["팔았을 때 수익 (실현)", d.realized_total],
     ["미실현 손익", d.unrealized_total],
+    ["총 구매", d.total_buy, "krw", "muted"],
+    ["총 판매", d.total_sell, "krw", "muted"],
+    ["순현금흐름 (판매-구매)", netCash],
     ["거래 건수", d.trades_count, "raw"],
     ["승률", winRatePct, "text", d.win_rate >= 0.5 ? "pos" : "neg"],
     ["수익/손실 거래", wlText, "text"],
