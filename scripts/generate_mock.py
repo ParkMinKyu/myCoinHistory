@@ -37,7 +37,7 @@ def main() -> None:
     holdings = {m: 0.0 for m, _ in MARKETS_INIT_PRICE}
     orders: list[dict] = []
 
-    cursor = datetime(2021, 1, 1, tzinfo=KST)
+    cursor = datetime(2018, 1, 1, tzinfo=KST)
     end = datetime(2026, 5, 6, tzinfo=KST)
 
     while cursor < end:
