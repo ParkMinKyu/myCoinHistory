@@ -258,7 +258,7 @@
   </div>
 
   <div class="panel">
-    <h2>최근 매매 흐름</h2>
+    <h2>매매 흐름 (오래된순) <span id="timeline-count" style="color:var(--muted);font-weight:400;font-size:12px;text-transform:none;letter-spacing:0;"></span></h2>
     <div class="timeline" id="timeline"></div>
   </div>
 
@@ -408,7 +408,8 @@ function aggregate() {
     if (pm.unrealized == null) pm.unrealized = 0;
   }
 
-  const recent = eventsWithCum.slice().reverse().slice(0, 80);
+  // timeline: 시간 정순 (첫 거래가 맨 위, 누적이 자연스럽게 증가)
+  const recent = eventsWithCum.slice();
 
   return {
     trades_count: filtered.length,
@@ -805,6 +806,7 @@ function renderTimeline(orders) {
     </div>`;
   }).join("");
   document.getElementById("timeline").innerHTML = html || '<div style="color: var(--muted)">거래 없음</div>';
+  document.getElementById("timeline-count").textContent = orders.length ? `· ${orders.length}건` : "";
 }
 
 function renderPositions(rows) {
