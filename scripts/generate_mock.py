@@ -117,6 +117,20 @@ def main() -> None:
         for o in recent
     ]
 
+    # 클라이언트 사이드 필터용 전체 orders (시간순)
+    all_orders = [
+        {
+            "uuid": o["uuid"],
+            "side": o["side"],
+            "market": o["market"],
+            "executed_volume": float(o["executed_volume"]),
+            "executed_funds": float(o["executed_funds"]),
+            "paid_fee": float(o["paid_fee"]),
+            "created_at": o["created_at"],
+        }
+        for o in sorted(orders, key=lambda o: o["created_at"])
+    ]
+
     payload = {
         "trades_count": result.trades_count,
         "realized_total": result.realized_total,
@@ -141,6 +155,8 @@ def main() -> None:
             if p.volume > 0
         ],
         "recent_orders": recent_orders,
+        "all_orders": all_orders,
+        "current_prices": current,
         "skipped_count": len(result.skipped),
         "_mock": True,
         "_generated_at": datetime.now(tz=KST).isoformat(),

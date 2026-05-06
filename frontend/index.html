@@ -137,7 +137,39 @@
 
     button { padding: 6px 12px; border: 1px solid var(--border); background: var(--bg-soft); border-radius: 6px; cursor: pointer; font-size: 13px; }
     button:hover { opacity: 0.85; }
+    button.active { background: var(--bid); color: white; border-color: var(--bid); }
     .toolbar { display: flex; gap: 8px; align-items: center; }
+
+    .filters {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      display: grid;
+      gap: 12px;
+    }
+    .filter-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .filter-row .label { font-size: 12px; color: var(--muted); width: 60px; flex-shrink: 0; font-weight: 600; }
+    .filter-row input[type="date"] {
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg-soft);
+      font-size: 13px;
+      color: inherit;
+      font-family: inherit;
+    }
+    .chip {
+      padding: 4px 10px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: transparent;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .chip.active { background: var(--bid); color: white; border-color: var(--bid); }
   </style>
 </head>
 <body>
@@ -149,6 +181,25 @@
     <div class="toolbar">
       <button id="reload" style="display:none;">캐시로 다시</button>
       <button id="refetch" style="display:none;">업비트에서 새로</button>
+    </div>
+  </div>
+
+  <div class="filters" id="filters" style="display:none;">
+    <div class="filter-row">
+      <span class="label">기간</span>
+      <button class="chip period" data-period="all">전체</button>
+      <button class="chip period" data-period="ytd">YTD</button>
+      <button class="chip period" data-period="1y">1년</button>
+      <button class="chip period" data-period="3m">3개월</button>
+      <button class="chip period" data-period="1m">1개월</button>
+      <input type="date" id="date-start" />
+      <span style="color:var(--muted)">~</span>
+      <input type="date" id="date-end" />
+    </div>
+    <div class="filter-row">
+      <span class="label">코인</span>
+      <button class="chip market-all active" data-market="">전체</button>
+      <span id="market-chips" style="display: contents;"></span>
     </div>
   </div>
 
@@ -206,6 +257,15 @@ const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyV
 
 const charts = {};
 
+// 클라이언트 사이드 상태
+const STATE = {
+  events: [],          // 시뮬레이션 결과 (각 거래 + 그 시점 realized)
+  positions: {},       // 전체 기간 누적 보유
+  currentPrices: {},   // market -> 현재가
+  meta: { mock: false, source: "static" },
+  filter: { start: null, end: null, markets: new Set() },
+};
+
 async function fetchData(useCache) {
   try {
     const r = await fetch("./result.json", { cache: "no-store" });
@@ -215,6 +275,187 @@ async function fetchData(useCache) {
   const d = await resp.json();
   if (!resp.ok) throw new Error(d.error || resp.statusText);
   return { data: d, source: "api" };
+}
+
+// 시간순 시뮬레이션: 평단/실현 정확히 계산 (backend/pnl.py의 calc_pnl 미러)
+function simulate(orders) {
+  const positions = {};
+  const events = [];
+  for (const o of orders) {
+    if (!o.market.startsWith("KRW-")) continue;
+    if (!positions[o.market]) positions[o.market] = { volume: 0, cost: 0 };
+    const p = positions[o.market];
+    let realized = 0;
+    if (o.side === "bid") {
+      p.volume += o.executed_volume;
+      p.cost += o.executed_funds + o.paid_fee;
+    } else if (o.side === "ask") {
+      const avg = p.volume > 0 ? p.cost / p.volume : 0;
+      const cost_out = avg * o.executed_volume;
+      const net_in = o.executed_funds - o.paid_fee;
+      realized = net_in - cost_out;
+      p.volume -= o.executed_volume;
+      p.cost -= cost_out;
+      if (p.volume <= 1e-12) { p.volume = 0; p.cost = 0; }
+    }
+    events.push({ ...o, realized });
+  }
+  return { events, positions };
+}
+
+// 필터 적용 + 집계
+function aggregate() {
+  const { events, positions, currentPrices, filter } = STATE;
+  const filtered = events.filter(e => {
+    const date = e.created_at.slice(0, 10);
+    if (filter.start && date < filter.start) return false;
+    if (filter.end && date > filter.end) return false;
+    if (filter.markets.size > 0 && !filter.markets.has(e.market)) return false;
+    return true;
+  });
+
+  let realized_total = 0;
+  const dailyR = {}, dailyT = {}, perMarket = {};
+  for (const e of filtered) {
+    const date = e.created_at.slice(0, 10);
+    realized_total += e.realized;
+    dailyR[date] = (dailyR[date] || 0) + e.realized;
+    dailyT[date] = (dailyT[date] || 0) + 1;
+    if (!perMarket[e.market]) {
+      perMarket[e.market] = { market: e.market, realized: 0, trades: 0 };
+    }
+    const pm = perMarket[e.market];
+    pm.realized += e.realized;
+    pm.trades += 1;
+  }
+
+  // daily cumulative (필터된 거래만으로 다시 누적)
+  const dates = Object.keys(dailyR).sort();
+  let cum = 0;
+  const daily = dates.map(d => {
+    cum += dailyR[d];
+    return { date: d, realized: dailyR[d], cumulative: cum };
+  });
+  const daily_trades = Object.entries(dailyT).map(([date, count]) => ({ date, count }));
+
+  // 보유 포지션: 코인 필터만 적용 (현재 시점)
+  const filteredPositions = [];
+  let unrealized_total = 0;
+  for (const [m, p] of Object.entries(positions)) {
+    if (p.volume <= 0) continue;
+    if (filter.markets.size > 0 && !filter.markets.has(m)) continue;
+    const cur = currentPrices[m] || 0;
+    const avg = p.cost / p.volume;
+    const unrealized = cur ? (cur - avg) * p.volume : 0;
+    unrealized_total += unrealized;
+    filteredPositions.push({
+      market: m, volume: p.volume, avg_price: avg, current_price: cur, unrealized,
+    });
+    if (perMarket[m]) {
+      perMarket[m].current_value = p.volume * cur;
+      perMarket[m].unrealized = unrealized;
+    }
+  }
+  // per_market에는 있지만 보유 0인 코인도 처리
+  for (const pm of Object.values(perMarket)) {
+    if (pm.current_value == null) pm.current_value = 0;
+    if (pm.unrealized == null) pm.unrealized = 0;
+  }
+
+  const recent = filtered.slice().reverse().slice(0, 80);
+
+  return {
+    trades_count: filtered.length,
+    realized_total, unrealized_total,
+    daily, daily_trades,
+    per_market: Object.values(perMarket),
+    positions: filteredPositions,
+    recent_orders: recent,
+  };
+}
+
+function renderAll() {
+  const agg = aggregate();
+  const meta = STATE.meta;
+  const tag = meta.mock ? " · MOCK 데이터" : (meta.source === "static" ? " · 정적 캐시" : "");
+  document.getElementById("status").textContent =
+    `거래 ${agg.trades_count}건${tag}`;
+  renderSummary(agg);
+  renderCumulativeChart(agg.daily);
+  renderDoughnut(agg.per_market);
+  renderBar(agg.per_market);
+  renderHeatmap(agg.daily_trades);
+  renderTimeline(agg.recent_orders);
+  renderPositions(agg.positions);
+}
+
+function setupFilters() {
+  // 코인 칩
+  const allMarkets = [...new Set(STATE.events.map(e => e.market))].sort();
+  const chipsHost = document.getElementById("market-chips");
+  chipsHost.innerHTML = allMarkets.map(m =>
+    `<button class="chip market" data-market="${m}">${m.replace("KRW-", "")}</button>`
+  ).join("");
+
+  document.querySelectorAll(".chip.market, .chip.market-all").forEach(btn => {
+    btn.onclick = () => {
+      const m = btn.dataset.market;
+      if (m === "") {
+        STATE.filter.markets.clear();
+        document.querySelectorAll(".chip.market").forEach(b => b.classList.remove("active"));
+        document.querySelector(".chip.market-all").classList.add("active");
+      } else {
+        document.querySelector(".chip.market-all").classList.remove("active");
+        if (STATE.filter.markets.has(m)) {
+          STATE.filter.markets.delete(m);
+          btn.classList.remove("active");
+        } else {
+          STATE.filter.markets.add(m);
+          btn.classList.add("active");
+        }
+        if (STATE.filter.markets.size === 0) {
+          document.querySelector(".chip.market-all").classList.add("active");
+        }
+      }
+      renderAll();
+    };
+  });
+
+  // 기간 프리셋
+  document.querySelectorAll(".chip.period").forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll(".chip.period").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const today = new Date();
+      const end = today.toISOString().slice(0, 10);
+      let start = null;
+      switch (btn.dataset.period) {
+        case "all": start = null; break;
+        case "ytd": start = `${today.getFullYear()}-01-01`; break;
+        case "1y": { const d = new Date(today); d.setFullYear(d.getFullYear() - 1); start = d.toISOString().slice(0, 10); break; }
+        case "3m": { const d = new Date(today); d.setMonth(d.getMonth() - 3); start = d.toISOString().slice(0, 10); break; }
+        case "1m": { const d = new Date(today); d.setMonth(d.getMonth() - 1); start = d.toISOString().slice(0, 10); break; }
+      }
+      STATE.filter.start = start;
+      STATE.filter.end = btn.dataset.period === "all" ? null : end;
+      document.getElementById("date-start").value = start || "";
+      document.getElementById("date-end").value = btn.dataset.period === "all" ? "" : end;
+      renderAll();
+    };
+  });
+
+  // 사용자 지정 날짜
+  const onDateChange = () => {
+    document.querySelectorAll(".chip.period").forEach(b => b.classList.remove("active"));
+    STATE.filter.start = document.getElementById("date-start").value || null;
+    STATE.filter.end = document.getElementById("date-end").value || null;
+    renderAll();
+  };
+  document.getElementById("date-start").onchange = onDateChange;
+  document.getElementById("date-end").onchange = onDateChange;
+
+  // 기본: 전체 기간 활성
+  document.querySelector('.chip.period[data-period="all"]').classList.add("active");
 }
 
 async function load(useCache) {
@@ -227,21 +468,34 @@ async function load(useCache) {
     status.textContent = "에러: " + e.message;
     return;
   }
-  const tag = data._mock ? " · MOCK 데이터" : (source === "static" ? " · 정적 캐시" : "");
-  status.textContent = `거래 ${data.trades_count}건 · 스킵 ${data.skipped_count}건${tag}`;
+
+  // 데이터 → 상태
+  STATE.meta = { mock: !!data._mock, source };
+  if (data.all_orders) {
+    const sim = simulate(data.all_orders);
+    STATE.events = sim.events;
+    STATE.positions = sim.positions;
+  } else {
+    // fallback: api 모드에서 all_orders 없으면 recent_orders로 표시만
+    STATE.events = (data.recent_orders || []).map(o => ({ ...o, realized: 0 }));
+    STATE.positions = {};
+    for (const p of data.positions || []) {
+      STATE.positions[p.market] = { volume: p.volume, cost: p.avg_price * p.volume };
+    }
+  }
+  STATE.currentPrices = data.current_prices || {};
+  for (const p of data.positions || []) {
+    if (p.current_price) STATE.currentPrices[p.market] = p.current_price;
+  }
 
   if (source !== "static") {
     document.getElementById("reload").style.display = "";
     document.getElementById("refetch").style.display = "";
   }
+  document.getElementById("filters").style.display = "";
 
-  renderSummary(data);
-  renderCumulativeChart(data.daily);
-  renderDoughnut(data.per_market || []);
-  renderBar(data.per_market || []);
-  renderHeatmap(data.daily_trades || []);
-  renderTimeline(data.recent_orders || []);
-  renderPositions(data.positions || []);
+  setupFilters();
+  renderAll();
 }
 
 function renderSummary(d) {
