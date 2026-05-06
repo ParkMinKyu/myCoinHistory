@@ -26,11 +26,22 @@ class DailyPnL:
 
 
 @dataclass
+class MarketStat:
+    market: str
+    realized: float = 0.0
+    trades: int = 0
+    buy_funds: float = 0.0
+    sell_funds: float = 0.0
+
+
+@dataclass
 class CalcResult:
     daily: list[DailyPnL]
     positions: dict[str, Position]  # market -> Position (현재 보유)
     realized_total: float
     trades_count: int
+    per_market: dict[str, MarketStat] = field(default_factory=dict)
+    daily_trades: dict[str, int] = field(default_factory=dict)  # date -> count
     skipped: list[dict] = field(default_factory=list)
 
 
@@ -46,6 +57,8 @@ def calc_pnl(orders: Iterable[dict]) -> CalcResult:
     sorted_orders = sorted(orders, key=lambda o: o.get("created_at", ""))
     positions: dict[str, Position] = defaultdict(Position)
     daily_realized: dict[str, float] = defaultdict(float)
+    daily_trades: dict[str, int] = defaultdict(int)
+    per_market: dict[str, MarketStat] = {}
     skipped: list[dict] = []
     realized_total = 0.0
     trades = 0
@@ -70,11 +83,15 @@ def calc_pnl(orders: Iterable[dict]) -> CalcResult:
 
         date_str = (o.get("created_at") or "")[:10]
         pos = positions[market]
+        ms = per_market.setdefault(market, MarketStat(market=market))
         trades += 1
+        ms.trades += 1
+        daily_trades[date_str] += 1
 
         if side == "bid":  # 매수
             pos.volume += executed_volume
             pos.cost += executed_funds + paid_fee
+            ms.buy_funds += executed_funds + paid_fee
         elif side == "ask":  # 매도
             avg = pos.avg_price
             cost_out = avg * executed_volume
@@ -82,6 +99,8 @@ def calc_pnl(orders: Iterable[dict]) -> CalcResult:
             realized = net_in - cost_out
             daily_realized[date_str] += realized
             realized_total += realized
+            ms.realized += realized
+            ms.sell_funds += net_in
             pos.volume -= executed_volume
             pos.cost -= cost_out
             if pos.volume <= 1e-12:
@@ -102,6 +121,8 @@ def calc_pnl(orders: Iterable[dict]) -> CalcResult:
         positions=dict(positions),
         realized_total=realized_total,
         trades_count=trades,
+        per_market=per_market,
+        daily_trades=dict(daily_trades),
         skipped=skipped,
     )
 

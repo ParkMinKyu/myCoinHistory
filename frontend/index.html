@@ -3,65 +3,214 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>myCoinHistory · 누적 손익</title>
+  <title>myCoinHistory</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <style>
-    :root { color-scheme: light dark; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif; margin: 0; padding: 24px; max-width: 1100px; }
-    h1 { font-size: 20px; margin: 0 0 16px; }
-    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
-    .card { padding: 14px 16px; border: 1px solid #d0d7de; border-radius: 8px; }
-    .card .label { font-size: 12px; color: #57606a; }
-    .card .value { font-size: 22px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
-    .pos { margin-top: 8px; font-variant-numeric: tabular-nums; color: #1a7f37; }
-    .neg { margin-top: 8px; font-variant-numeric: tabular-nums; color: #cf222e; }
-    .chart-wrap { border: 1px solid #d0d7de; border-radius: 8px; padding: 12px; height: 420px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 24px; font-variant-numeric: tabular-nums; font-size: 13px; }
-    th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid #eaeef2; }
+    :root {
+      color-scheme: light dark;
+      --border: #d0d7de;
+      --muted: #57606a;
+      --bg-soft: #f6f8fa;
+      --pos: #1a7f37;
+      --neg: #cf222e;
+      --bid: #0969da;
+      --ask: #cf222e;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --border: #30363d;
+        --muted: #8b949e;
+        --bg-soft: #161b22;
+        --pos: #3fb950;
+        --neg: #f85149;
+        --bid: #58a6ff;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
+      margin: 0; padding: 24px;
+      max-width: 1280px; margin-left: auto; margin-right: auto;
+    }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 20px; flex-wrap: wrap; gap: 8px; }
+    .status { color: var(--muted); font-size: 13px; }
+
+    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .card {
+      padding: 14px 16px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--bg-soft);
+    }
+    .card .label { font-size: 12px; color: var(--muted); }
+    .card .value { font-size: 22px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .pos { color: var(--pos); }
+    .neg { color: var(--neg); }
+
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+    @media (max-width: 760px) { .grid-2 { grid-template-columns: 1fr; } }
+    .chart-wrap { height: 360px; position: relative; }
+    .chart-wrap.tall { height: 420px; }
+
+    /* 캘린더 히트맵 */
+    .heatmap {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 6px;
+      overflow-x: auto;
+    }
+    .hm-days {
+      display: grid;
+      grid-template-rows: repeat(7, 1fr);
+      gap: 2px;
+      font-size: 10px;
+      color: var(--muted);
+      align-items: center;
+    }
+    .hm-grid {
+      display: grid;
+      grid-auto-flow: column;
+      grid-template-rows: repeat(7, 14px);
+      gap: 2px;
+    }
+    .hm-cell {
+      width: 14px; height: 14px;
+      border-radius: 3px;
+      background: var(--bg-soft);
+      border: 1px solid transparent;
+    }
+    .hm-cell.l1 { background: #c6e3ff; }
+    .hm-cell.l2 { background: #79b8ff; }
+    .hm-cell.l3 { background: #2188ff; }
+    .hm-cell.l4 { background: #044289; }
+    @media (prefers-color-scheme: dark) {
+      .hm-cell.l1 { background: #0d3a6e; }
+      .hm-cell.l2 { background: #1f6feb; }
+      .hm-cell.l3 { background: #58a6ff; }
+      .hm-cell.l4 { background: #79c0ff; }
+    }
+    .hm-legend { display: flex; gap: 6px; align-items: center; font-size: 11px; color: var(--muted); margin-top: 8px; }
+
+    /* 타임라인 */
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 10px;
+      max-height: 560px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+    .tl-card {
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--bid);
+      border-radius: 6px;
+      padding: 10px 12px;
+      background: var(--bg-soft);
+      font-size: 13px;
+    }
+    .tl-card.ask { border-left-color: var(--ask); }
+    .tl-time { font-size: 11px; color: var(--muted); }
+    .tl-row { display: flex; justify-content: space-between; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .tl-side {
+      font-weight: 700;
+      font-size: 12px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      color: white;
+      background: var(--bid);
+    }
+    .tl-card.ask .tl-side { background: var(--ask); }
+
+    /* 보유 테이블 */
+    table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
+    th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--border); }
     th:first-child, td:first-child { text-align: left; }
-    th { background: #f6f8fa; font-weight: 600; }
-    .toolbar { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; }
-    button { padding: 6px 12px; border: 1px solid #d0d7de; background: #f6f8fa; border-radius: 6px; cursor: pointer; }
-    button:hover { background: #eaeef2; }
-    .status { color: #57606a; font-size: 13px; }
+    th { background: var(--bg-soft); font-weight: 600; color: var(--muted); }
+
+    button { padding: 6px 12px; border: 1px solid var(--border); background: var(--bg-soft); border-radius: 6px; cursor: pointer; font-size: 13px; }
+    button:hover { opacity: 0.85; }
+    .toolbar { display: flex; gap: 8px; align-items: center; }
   </style>
 </head>
 <body>
-  <h1>myCoinHistory</h1>
-
-  <div class="toolbar">
-    <button id="reload">캐시로 다시 그리기</button>
-    <button id="refetch">업비트에서 새로 가져오기 (오래 걸림)</button>
-    <span class="status" id="status">로딩...</span>
+  <div class="header">
+    <div>
+      <h1>myCoinHistory</h1>
+      <div class="status" id="status">로딩...</div>
+    </div>
+    <div class="toolbar">
+      <button id="reload" style="display:none;">캐시로 다시</button>
+      <button id="refetch" style="display:none;">업비트에서 새로</button>
+    </div>
   </div>
 
   <div class="summary" id="summary"></div>
-  <div class="chart-wrap"><canvas id="pnlChart"></canvas></div>
 
-  <h2 style="font-size: 16px; margin-top: 28px;">현재 보유</h2>
-  <table id="positions">
-    <thead>
-      <tr><th>코인</th><th>수량</th><th>평단가</th><th>현재가</th><th>미실현 손익</th></tr>
-    </thead>
-    <tbody></tbody>
-  </table>
+  <div class="panel">
+    <h2>누적 실현 손익</h2>
+    <div class="chart-wrap tall"><canvas id="chartCum"></canvas></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="panel">
+      <h2>코인별 보유 비중 (현재 평가액)</h2>
+      <div class="chart-wrap"><canvas id="chartDoughnut"></canvas></div>
+    </div>
+    <div class="panel">
+      <h2>코인별 누적 손익 (실현 + 미실현)</h2>
+      <div class="chart-wrap"><canvas id="chartBar"></canvas></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>거래 빈도 (최근 1년)</h2>
+    <div id="heatmap"></div>
+    <div class="hm-legend">
+      <span>적음</span>
+      <span class="hm-cell"></span>
+      <span class="hm-cell l1"></span>
+      <span class="hm-cell l2"></span>
+      <span class="hm-cell l3"></span>
+      <span class="hm-cell l4"></span>
+      <span>많음</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>최근 매매 흐름</h2>
+    <div class="timeline" id="timeline"></div>
+  </div>
+
+  <div class="panel">
+    <h2>현재 보유</h2>
+    <table id="positions">
+      <thead>
+        <tr><th>코인</th><th>수량</th><th>평단가</th><th>현재가</th><th>평가액</th><th>미실현 손익</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
 
 <script>
 const fmt = (n) => n == null ? "-" : Math.round(n).toLocaleString("ko-KR");
 const fmtNum = (n, d=4) => n == null ? "-" : Number(n).toLocaleString("ko-KR", { maximumFractionDigits: d });
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-let chart;
+const charts = {};
 
 async function fetchData(useCache) {
-  // 1순위: 정적 result.json (GitHub Pages 등 백엔드 없는 환경)
   try {
     const r = await fetch("./result.json", { cache: "no-store" });
-    if (r.ok) {
-      const d = await r.json();
-      return { data: d, source: "static" };
-    }
+    if (r.ok) return { data: await r.json(), source: "static" };
   } catch (_) {}
-  // 2순위: Flask /api/pnl
   const resp = await fetch(`/api/pnl?cache=${useCache ? 1 : 0}`);
   const d = await resp.json();
   if (!resp.ok) throw new Error(d.error || resp.statusText);
@@ -70,7 +219,7 @@ async function fetchData(useCache) {
 
 async function load(useCache) {
   const status = document.getElementById("status");
-  status.textContent = useCache ? "로드 중..." : "업비트에서 가져오는 중 (수 분 소요)...";
+  status.textContent = useCache ? "로드 중..." : "업비트에서 가져오는 중...";
   let data, source;
   try {
     ({ data, source } = await fetchData(useCache));
@@ -81,21 +230,24 @@ async function load(useCache) {
   const tag = data._mock ? " · MOCK 데이터" : (source === "static" ? " · 정적 캐시" : "");
   status.textContent = `거래 ${data.trades_count}건 · 스킵 ${data.skipped_count}건${tag}`;
 
-  // 정적 모드면 토글 버튼 숨김
-  if (source === "static") {
-    document.getElementById("refetch").style.display = "none";
-    document.getElementById("reload").style.display = "none";
+  if (source !== "static") {
+    document.getElementById("reload").style.display = "";
+    document.getElementById("refetch").style.display = "";
   }
 
   renderSummary(data);
-  renderChart(data.daily);
-  renderPositions(data.positions);
+  renderCumulativeChart(data.daily);
+  renderDoughnut(data.per_market || []);
+  renderBar(data.per_market || []);
+  renderHeatmap(data.daily_trades || []);
+  renderTimeline(data.recent_orders || []);
+  renderPositions(data.positions || []);
 }
 
 function renderSummary(d) {
   const total = (d.realized_total || 0) + (d.unrealized_total || 0);
   const cards = [
-    ["총 손익 (실현+미실현)", total],
+    ["총 손익", total],
     ["실현 손익", d.realized_total],
     ["미실현 손익", d.unrealized_total],
     ["거래 건수", d.trades_count, true],
@@ -107,47 +259,150 @@ function renderSummary(d) {
   }).join("");
 }
 
-function renderChart(daily) {
-  const ctx = document.getElementById("pnlChart");
-  if (chart) chart.destroy();
-  chart = new Chart(ctx, {
+function renderCumulativeChart(daily) {
+  const ctx = document.getElementById("chartCum");
+  if (charts.cum) charts.cum.destroy();
+  charts.cum = new Chart(ctx, {
     type: "line",
     data: {
       labels: daily.map(d => d.date),
       datasets: [{
         label: "누적 실현 손익 (원)",
         data: daily.map(d => d.cumulative),
-        borderColor: "#0969da",
-        backgroundColor: "rgba(9, 105, 218, 0.1)",
-        fill: true,
-        tension: 0.1,
-        pointRadius: 0,
-        borderWidth: 2,
+        borderColor: cssVar("--bid"),
+        backgroundColor: "rgba(9, 105, 218, 0.12)",
+        fill: true, tension: 0.1, pointRadius: 0, borderWidth: 2,
       }]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false,
       interaction: { mode: "index", intersect: false },
-      scales: {
-        y: { ticks: { callback: v => Math.round(v).toLocaleString("ko-KR") } }
-      },
+      scales: { y: { ticks: { callback: v => Math.round(v).toLocaleString("ko-KR") } } },
+      plugins: { tooltip: { callbacks: { label: c => Math.round(c.parsed.y).toLocaleString("ko-KR") + " 원" } }, legend: { display: false } }
+    }
+  });
+}
+
+const PALETTE = ["#0969da", "#1a7f37", "#cf222e", "#bf8700", "#8250df", "#0550ae", "#3192aa", "#9a6700"];
+
+function renderDoughnut(perMarket) {
+  const held = perMarket.filter(m => m.current_value > 0);
+  const ctx = document.getElementById("chartDoughnut");
+  if (charts.dough) charts.dough.destroy();
+  if (!held.length) {
+    ctx.parentElement.innerHTML = '<div style="color: var(--muted); padding: 20px;">보유 코인 없음</div>';
+    return;
+  }
+  charts.dough = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: held.map(m => m.market.replace("KRW-", "")),
+      datasets: [{
+        data: held.map(m => m.current_value),
+        backgroundColor: held.map((_, i) => PALETTE[i % PALETTE.length]),
+        borderWidth: 0,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
       plugins: {
-        tooltip: { callbacks: { label: c => Math.round(c.parsed.y).toLocaleString("ko-KR") + " 원" } }
+        legend: { position: "right" },
+        tooltip: { callbacks: { label: c => `${c.label}: ${Math.round(c.parsed).toLocaleString("ko-KR")} 원` } }
       }
     }
   });
+}
+
+function renderBar(perMarket) {
+  const data = perMarket.map(m => ({ market: m.market.replace("KRW-", ""), pnl: (m.realized || 0) + (m.unrealized || 0) }))
+    .sort((a, b) => b.pnl - a.pnl);
+  const ctx = document.getElementById("chartBar");
+  if (charts.bar) charts.bar.destroy();
+  charts.bar = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: data.map(d => d.market),
+      datasets: [{
+        label: "누적 손익 (원)",
+        data: data.map(d => d.pnl),
+        backgroundColor: data.map(d => d.pnl >= 0 ? cssVar("--pos") : cssVar("--neg")),
+      }]
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => Math.round(c.parsed.x).toLocaleString("ko-KR") + " 원" } } },
+      scales: { x: { ticks: { callback: v => Math.round(v).toLocaleString("ko-KR") } } }
+    }
+  });
+}
+
+function renderHeatmap(dailyTrades) {
+  const map = new Map(dailyTrades.map(d => [d.date, d.count]));
+  const today = new Date();
+  const start = new Date(today); start.setDate(start.getDate() - 364);
+  // 시작점을 그 주의 일요일로 맞춤
+  start.setDate(start.getDate() - start.getDay());
+
+  const max = Math.max(1, ...dailyTrades.map(d => d.count));
+  const lvl = (n) => {
+    if (!n) return "";
+    const r = n / max;
+    if (r > 0.66) return "l4";
+    if (r > 0.33) return "l3";
+    if (r > 0.10) return "l2";
+    return "l1";
+  };
+
+  const cells = [];
+  const cur = new Date(start);
+  while (cur <= today) {
+    const key = cur.toISOString().slice(0, 10);
+    const count = map.get(key) || 0;
+    cells.push(`<div class="hm-cell ${lvl(count)}" title="${key}: ${count}건"></div>`);
+    cur.setDate(cur.getDate() + 1);
+  }
+
+  const dayLabels = ["일", "", "화", "", "목", "", "토"];
+  document.getElementById("heatmap").innerHTML = `
+    <div class="heatmap">
+      <div class="hm-days">${dayLabels.map(d => `<div>${d}</div>`).join("")}</div>
+      <div class="hm-grid">${cells.join("")}</div>
+    </div>`;
+}
+
+function renderTimeline(orders) {
+  const html = orders.map(o => {
+    const sideKo = o.side === "bid" ? "매수" : "매도";
+    const dt = new Date(o.created_at);
+    const dateStr = dt.toLocaleDateString("ko-KR", { year: "2-digit", month: "2-digit", day: "2-digit" });
+    const timeStr = dt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+    const market = o.market.replace("KRW-", "");
+    const cls = o.side === "ask" ? "ask" : "";
+    return `<div class="tl-card ${cls}">
+      <div class="tl-time">${dateStr} ${timeStr}</div>
+      <div class="tl-row">
+        <strong>${market}</strong>
+        <span class="tl-side">${sideKo}</span>
+      </div>
+      <div class="tl-row"><span style="color:var(--muted)">수량</span><span>${fmtNum(o.executed_volume, 6)}</span></div>
+      <div class="tl-row"><span style="color:var(--muted)">금액</span><span>${fmt(o.executed_funds)} 원</span></div>
+    </div>`;
+  }).join("");
+  document.getElementById("timeline").innerHTML = html || '<div style="color: var(--muted)">거래 없음</div>';
 }
 
 function renderPositions(rows) {
   const tbody = document.querySelector("#positions tbody");
   tbody.innerHTML = rows.map(r => {
     const cls = (r.unrealized || 0) >= 0 ? "pos" : "neg";
+    const value = (r.volume || 0) * (r.current_price || 0);
     return `<tr>
       <td>${r.market}</td>
       <td>${fmtNum(r.volume, 8)}</td>
       <td>${fmt(r.avg_price)}</td>
       <td>${fmt(r.current_price)}</td>
+      <td>${fmt(value)}</td>
       <td class="${cls}">${fmt(r.unrealized)}</td>
     </tr>`;
   }).join("");

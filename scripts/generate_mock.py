@@ -84,6 +84,39 @@ def main() -> None:
     current = {m: prices[m] for m, _ in MARKETS_INIT_PRICE}
     unreal = unrealized_pnl(result.positions, current)
 
+    per_market_list = []
+    for m, ms in result.per_market.items():
+        pos = result.positions.get(m)
+        per_market_list.append(
+            {
+                "market": m,
+                "realized": ms.realized,
+                "unrealized": unreal.get(m, 0.0),
+                "trades": ms.trades,
+                "buy_funds": ms.buy_funds,
+                "sell_funds": ms.sell_funds,
+                "current_volume": pos.volume if pos else 0.0,
+                "current_value": (pos.volume * current.get(m, 0.0)) if pos else 0.0,
+                "avg_price": pos.avg_price if pos else 0.0,
+                "current_price": current.get(m),
+            }
+        )
+
+    # 타임라인용: 최근 N건만 (전체는 무거움)
+    recent = sorted(orders, key=lambda o: o["created_at"], reverse=True)[:80]
+    recent_orders = [
+        {
+            "uuid": o["uuid"],
+            "side": o["side"],
+            "market": o["market"],
+            "executed_volume": float(o["executed_volume"]),
+            "executed_funds": float(o["executed_funds"]),
+            "paid_fee": float(o["paid_fee"]),
+            "created_at": o["created_at"],
+        }
+        for o in recent
+    ]
+
     payload = {
         "trades_count": result.trades_count,
         "realized_total": result.realized_total,
@@ -92,6 +125,10 @@ def main() -> None:
             {"date": d.date, "realized": d.realized, "cumulative": d.cumulative_realized}
             for d in result.daily
         ],
+        "daily_trades": [
+            {"date": d, "count": c} for d, c in sorted(result.daily_trades.items())
+        ],
+        "per_market": per_market_list,
         "positions": [
             {
                 "market": m,
@@ -103,11 +140,16 @@ def main() -> None:
             for m, p in result.positions.items()
             if p.volume > 0
         ],
+        "recent_orders": recent_orders,
         "skipped_count": len(result.skipped),
         "_mock": True,
+        "_generated_at": datetime.now(tz=KST).isoformat(),
     }
     OUT.write_text(json.dumps(payload, ensure_ascii=False))
-    print(f"wrote {OUT}: orders={len(orders)} days={len(result.daily)} positions={len(payload['positions'])}")
+    print(
+        f"wrote {OUT}: orders={len(orders)} days={len(result.daily)} "
+        f"positions={len(payload['positions'])} markets={len(per_market_list)}"
+    )
 
 
 if __name__ == "__main__":
