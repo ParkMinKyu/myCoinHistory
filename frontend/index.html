@@ -354,14 +354,23 @@ function aggregate() {
   // 누적: 전체(필터 기준) + 코인별 (timeline 카드용)
   let runningCum = 0;
   const cumByMarket = {};
+  const buyRunByMarket = {};
+  const sellRunByMarket = {};
   const eventsWithCum = [];
   for (const e of filtered) {
     runningCum += e.realized;
     cumByMarket[e.market] = (cumByMarket[e.market] || 0) + e.realized;
+    if (e.side === "bid") {
+      buyRunByMarket[e.market] = (buyRunByMarket[e.market] || 0) + e.executed_funds + e.paid_fee;
+    } else if (e.side === "ask") {
+      sellRunByMarket[e.market] = (sellRunByMarket[e.market] || 0) + e.executed_funds - e.paid_fee;
+    }
     eventsWithCum.push({
       ...e,
       cumulative: runningCum,
       cumulative_market: cumByMarket[e.market],
+      buy_running: buyRunByMarket[e.market] || 0,
+      sell_running: sellRunByMarket[e.market] || 0,
     });
     const date = e.created_at.slice(0, 10);
     realized_total += e.realized;
@@ -834,6 +843,8 @@ function timelineCardHtml(o) {
     </div>
     <div class="tl-row"><span style="color:var(--muted)">수량</span><span>${fmtNum(o.executed_volume, 6)}</span></div>
     <div class="tl-row"><span style="color:var(--muted)">금액</span><span>${fmt(o.executed_funds)} 원</span></div>
+    <div class="tl-row"><span style="color:var(--muted)">${market} 총 구매</span><span>${fmt(o.buy_running)} 원</span></div>
+    <div class="tl-row"><span style="color:var(--muted)">${market} 총 판매</span><span>${fmt(o.sell_running)} 원</span></div>
     ${realizedRow}
     ${cumRow}
   </div>`;
