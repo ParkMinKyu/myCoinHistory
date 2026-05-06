@@ -258,7 +258,11 @@
   </div>
 
   <div class="panel">
-    <h2>매매 흐름 (오래된순) <span id="timeline-count" style="color:var(--muted);font-weight:400;font-size:12px;text-transform:none;letter-spacing:0;"></span></h2>
+    <h2>매매 흐름 <span id="timeline-count" style="color:var(--muted);font-weight:400;font-size:12px;text-transform:none;letter-spacing:0;"></span></h2>
+    <div class="filter-row" style="margin-bottom: 10px;">
+      <button class="chip sort active" data-sort="asc">오래된순</button>
+      <button class="chip sort" data-sort="desc">최신순</button>
+    </div>
     <div class="timeline" id="timeline"></div>
   </div>
 
@@ -288,7 +292,12 @@ const STATE = {
   currentPrices: {},   // market -> 현재가
   meta: { mock: false, source: "static" },
   filter: { start: null, end: null, markets: new Set() },
+  timelineSort: "asc",        // "asc" 오래된순 | "desc" 최신순
+  timelineAll: [],            // 정렬된 timeline 데이터
+  timelineRendered: 0,        // 렌더된 카드 수
 };
+const TIMELINE_PAGE = 100;
+let _timelineObserver = null;
 
 async function fetchData(useCache) {
   try {
@@ -511,6 +520,18 @@ function setupFilters() {
 
   // 기본: 전체 기간 활성
   document.querySelector('.chip.period[data-period="all"]').classList.add("active");
+
+  // 정렬 토글 (timeline)
+  document.querySelectorAll(".chip.sort").forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll(".chip.sort").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      STATE.timelineSort = btn.dataset.sort;
+      // 현재 aggregate 결과의 recent_orders로 timeline만 다시 렌더
+      const agg = aggregate();
+      renderTimeline(agg.recent_orders);
+    };
+  });
 }
 
 async function load(useCache) {
@@ -777,36 +798,74 @@ function signed(n) {
   return (v > 0 ? "+" : "") + v.toLocaleString("ko-KR");
 }
 
+function timelineCardHtml(o) {
+  const sideKo = o.side === "bid" ? "매수" : "매도";
+  const dt = new Date(o.created_at);
+  const dateStr = dt.toLocaleDateString("ko-KR", { year: "2-digit", month: "2-digit", day: "2-digit" });
+  const timeStr = dt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+  const market = o.market.replace("KRW-", "");
+  const cls = o.side === "ask" ? "ask" : "";
+
+  const realizedRow = o.side === "ask"
+    ? `<div class="tl-row"><span style="color:var(--muted)">손익</span><span class="${o.realized >= 0 ? 'pos' : 'neg'}">${signed(o.realized)} 원</span></div>`
+    : "";
+  const cumRow = o.cumulative_market != null
+    ? `<div class="tl-row"><span style="color:var(--muted)">${market} 누적</span><span class="${o.cumulative_market >= 0 ? 'pos' : 'neg'}">${signed(o.cumulative_market)} 원</span></div>`
+    : "";
+
+  return `<div class="tl-card ${cls}">
+    <div class="tl-time">${dateStr} ${timeStr}</div>
+    <div class="tl-row">
+      <strong>${market}</strong>
+      <span class="tl-side">${sideKo}</span>
+    </div>
+    <div class="tl-row"><span style="color:var(--muted)">수량</span><span>${fmtNum(o.executed_volume, 6)}</span></div>
+    <div class="tl-row"><span style="color:var(--muted)">금액</span><span>${fmt(o.executed_funds)} 원</span></div>
+    ${realizedRow}
+    ${cumRow}
+  </div>`;
+}
+
 function renderTimeline(orders) {
-  const html = orders.map(o => {
-    const sideKo = o.side === "bid" ? "매수" : "매도";
-    const dt = new Date(o.created_at);
-    const dateStr = dt.toLocaleDateString("ko-KR", { year: "2-digit", month: "2-digit", day: "2-digit" });
-    const timeStr = dt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
-    const market = o.market.replace("KRW-", "");
-    const cls = o.side === "ask" ? "ask" : "";
+  // 정렬 적용 (orders는 시간 정순으로 들어옴)
+  STATE.timelineAll = STATE.timelineSort === "desc" ? orders.slice().reverse() : orders.slice();
+  STATE.timelineRendered = 0;
 
-    const realizedRow = o.side === "ask"
-      ? `<div class="tl-row"><span style="color:var(--muted)">손익</span><span class="${o.realized >= 0 ? 'pos' : 'neg'}">${signed(o.realized)} 원</span></div>`
-      : "";
-    const cumRow = o.cumulative_market != null
-      ? `<div class="tl-row"><span style="color:var(--muted)">${market} 누적</span><span class="${o.cumulative_market >= 0 ? 'pos' : 'neg'}">${signed(o.cumulative_market)} 원</span></div>`
-      : "";
+  const el = document.getElementById("timeline");
+  if (!STATE.timelineAll.length) {
+    el.innerHTML = '<div style="color: var(--muted)">거래 없음</div>';
+    document.getElementById("timeline-count").textContent = "";
+    if (_timelineObserver) _timelineObserver.disconnect();
+    return;
+  }
 
-    return `<div class="tl-card ${cls}">
-      <div class="tl-time">${dateStr} ${timeStr}</div>
-      <div class="tl-row">
-        <strong>${market}</strong>
-        <span class="tl-side">${sideKo}</span>
-      </div>
-      <div class="tl-row"><span style="color:var(--muted)">수량</span><span>${fmtNum(o.executed_volume, 6)}</span></div>
-      <div class="tl-row"><span style="color:var(--muted)">금액</span><span>${fmt(o.executed_funds)} 원</span></div>
-      ${realizedRow}
-      ${cumRow}
-    </div>`;
-  }).join("");
-  document.getElementById("timeline").innerHTML = html || '<div style="color: var(--muted)">거래 없음</div>';
-  document.getElementById("timeline-count").textContent = orders.length ? `· ${orders.length}건` : "";
+  // 컨테이너 초기화 + sentinel
+  el.innerHTML = '<div id="timeline-sentinel" style="grid-column:1/-1;height:1px;"></div>';
+  loadMoreTimeline();
+
+  // observer 재설정 (innerHTML 교체로 이전 sentinel은 dead)
+  if (_timelineObserver) _timelineObserver.disconnect();
+  _timelineObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting) loadMoreTimeline();
+  }, { root: el, rootMargin: "300px", threshold: 0 });
+  _timelineObserver.observe(document.getElementById("timeline-sentinel"));
+
+  document.getElementById("timeline-count").textContent = `· ${STATE.timelineAll.length}건`;
+}
+
+function loadMoreTimeline() {
+  const start = STATE.timelineRendered;
+  const end = Math.min(start + TIMELINE_PAGE, STATE.timelineAll.length);
+  if (start >= end) {
+    if (_timelineObserver) _timelineObserver.disconnect();
+    return;
+  }
+  const html = STATE.timelineAll.slice(start, end).map(timelineCardHtml).join("");
+  const sentinel = document.getElementById("timeline-sentinel");
+  if (sentinel) sentinel.insertAdjacentHTML("beforebegin", html);
+  STATE.timelineRendered = end;
+  document.getElementById("timeline-count").textContent =
+    `· ${STATE.timelineRendered}/${STATE.timelineAll.length}건`;
 }
 
 function renderPositions(rows) {
