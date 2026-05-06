@@ -33,7 +33,7 @@ cp .env.example .env
 # IP 제한: 본인 PC IP 등록 필수
 
 python -m backend.app
-# → http://localhost:5050
+# → http://localhost:11666
 ```
 
 처음 진입하면 캐시가 없으니 "업비트에서 새로 가져오기" 클릭.
