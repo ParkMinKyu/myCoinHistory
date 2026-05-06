@@ -20,7 +20,29 @@
 - 거래소 간 전송 매칭, 에어드랍, 스테이킹
 - 양도세 계산 (2027.1.1 시행 후 별도)
 
-## 실행
+## 모드
+
+| 모드 | 데이터 출처 | 용도 |
+|---|---|---|
+| **Mock (정적)** | `frontend/result.json` (랜덤 생성) | UI 화면 확인용. GitHub Pages 배포 |
+| **Live (Flask)** | 업비트 API 실시간 fetch | 본인 거래내역 실제 분석 |
+
+프론트는 자동 감지: `result.json` 있으면 정적 모드, 없으면 Flask `/api/pnl` 호출.
+
+## Mock 모드 (GitHub Pages)
+
+```bash
+python3 scripts/generate_mock.py    # frontend/result.json 생성
+# 로컬 확인:
+python3 -m http.server -d frontend 8000   # → http://localhost:8000
+```
+
+GitHub Pages 자동 배포 활성화:
+1. GitHub 저장소 → **Settings → Pages → Source: GitHub Actions**
+2. 이 브랜치(또는 main) push하면 `.github/workflows/pages.yml`이 mock 생성 + 배포
+3. Actions 탭에서 deploy URL 확인
+
+## Live 모드 (실제 거래내역)
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate

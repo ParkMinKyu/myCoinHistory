@@ -1,0 +1,114 @@
+"""가짜 거래내역 생성 → frontend/result.json 출력.
+
+UI 검증 전용. 실제 시세/패턴 시뮬레이션 X.
+seed 고정이라 매번 같은 결과 나옴.
+"""
+
+from __future__ import annotations
+
+import json
+import random
+import sys
+import uuid
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from backend.pnl import calc_pnl, unrealized_pnl  # noqa: E402
+
+KST = timezone(timedelta(hours=9))
+OUT = ROOT / "frontend" / "result.json"
+
+MARKETS_INIT_PRICE = [
+    ("KRW-BTC", 50_000_000),
+    ("KRW-ETH", 3_000_000),
+    ("KRW-XRP", 800),
+    ("KRW-SOL", 200_000),
+    ("KRW-DOGE", 200),
+    ("KRW-ADA", 700),
+]
+
+
+def main() -> None:
+    random.seed(42)
+    prices = {m: p for m, p in MARKETS_INIT_PRICE}
+    holdings = {m: 0.0 for m, _ in MARKETS_INIT_PRICE}
+    orders: list[dict] = []
+
+    cursor = datetime(2021, 1, 1, tzinfo=KST)
+    end = datetime(2026, 5, 6, tzinfo=KST)
+
+    while cursor < end:
+        for m in prices:
+            prices[m] *= random.uniform(0.97, 1.035)
+            if prices[m] < 1:
+                prices[m] = 1.0
+
+        if random.random() < 0.18:
+            for _ in range(random.randint(1, 3)):
+                m = random.choice([mm for mm, _ in MARKETS_INIT_PRICE])
+                p = prices[m]
+                if holdings[m] > 0 and random.random() < 0.45:
+                    vol = holdings[m] * random.uniform(0.2, 1.0)
+                    funds = vol * p
+                    side = "ask"
+                    holdings[m] -= vol
+                else:
+                    funds = random.uniform(100_000, 3_000_000)
+                    vol = funds / p
+                    side = "bid"
+                    holdings[m] += vol
+
+                ts = cursor.replace(
+                    hour=random.randint(9, 22),
+                    minute=random.randint(0, 59),
+                )
+                orders.append(
+                    {
+                        "uuid": str(uuid.uuid4()),
+                        "side": side,
+                        "ord_type": "limit",
+                        "state": "done",
+                        "market": m,
+                        "executed_volume": f"{vol:.8f}",
+                        "executed_funds": f"{funds:.4f}",
+                        "paid_fee": f"{funds * 0.0005:.4f}",
+                        "created_at": ts.isoformat(),
+                    }
+                )
+        cursor += timedelta(days=1)
+
+    result = calc_pnl(orders)
+    current = {m: prices[m] for m, _ in MARKETS_INIT_PRICE}
+    unreal = unrealized_pnl(result.positions, current)
+
+    payload = {
+        "trades_count": result.trades_count,
+        "realized_total": result.realized_total,
+        "unrealized_total": sum(unreal.values()),
+        "daily": [
+            {"date": d.date, "realized": d.realized, "cumulative": d.cumulative_realized}
+            for d in result.daily
+        ],
+        "positions": [
+            {
+                "market": m,
+                "volume": p.volume,
+                "avg_price": p.avg_price,
+                "current_price": current.get(m),
+                "unrealized": unreal.get(m, 0.0),
+            }
+            for m, p in result.positions.items()
+            if p.volume > 0
+        ],
+        "skipped_count": len(result.skipped),
+        "_mock": True,
+    }
+    OUT.write_text(json.dumps(payload, ensure_ascii=False))
+    print(f"wrote {OUT}: orders={len(orders)} days={len(result.daily)} positions={len(payload['positions'])}")
+
+
+if __name__ == "__main__":
+    main()

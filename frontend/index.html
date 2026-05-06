@@ -52,20 +52,40 @@ const fmtNum = (n, d=4) => n == null ? "-" : Number(n).toLocaleString("ko-KR", {
 
 let chart;
 
+async function fetchData(useCache) {
+  // 1순위: 정적 result.json (GitHub Pages 등 백엔드 없는 환경)
+  try {
+    const r = await fetch("./result.json", { cache: "no-store" });
+    if (r.ok) {
+      const d = await r.json();
+      return { data: d, source: "static" };
+    }
+  } catch (_) {}
+  // 2순위: Flask /api/pnl
+  const resp = await fetch(`/api/pnl?cache=${useCache ? 1 : 0}`);
+  const d = await resp.json();
+  if (!resp.ok) throw new Error(d.error || resp.statusText);
+  return { data: d, source: "api" };
+}
+
 async function load(useCache) {
   const status = document.getElementById("status");
-  status.textContent = useCache ? "캐시 로드 중..." : "업비트에서 가져오는 중 (수 분 소요)...";
-  const url = `/api/pnl?cache=${useCache ? 1 : 0}`;
-  let data;
+  status.textContent = useCache ? "로드 중..." : "업비트에서 가져오는 중 (수 분 소요)...";
+  let data, source;
   try {
-    const resp = await fetch(url);
-    data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || resp.statusText);
+    ({ data, source } = await fetchData(useCache));
   } catch (e) {
     status.textContent = "에러: " + e.message;
     return;
   }
-  status.textContent = `거래 ${data.trades_count}건 · 스킵 ${data.skipped_count}건`;
+  const tag = data._mock ? " · MOCK 데이터" : (source === "static" ? " · 정적 캐시" : "");
+  status.textContent = `거래 ${data.trades_count}건 · 스킵 ${data.skipped_count}건${tag}`;
+
+  // 정적 모드면 토글 버튼 숨김
+  if (source === "static") {
+    document.getElementById("refetch").style.display = "none";
+    document.getElementById("reload").style.display = "none";
+  }
 
   renderSummary(data);
   renderChart(data.daily);
