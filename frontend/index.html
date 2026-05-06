@@ -342,12 +342,18 @@ function aggregate() {
   const dailyR = {}, dailyT = {}, perMarket = {};
   // 매도 거래(realized != 0)만 수익/손실 통계 대상
   const wins = [], losses = [];
-  // 필터된 events에 누적 손익 다시 부여 (필터 기준 누적)
+  // 누적: 전체(필터 기준) + 코인별 (timeline 카드용)
   let runningCum = 0;
+  const cumByMarket = {};
   const eventsWithCum = [];
   for (const e of filtered) {
     runningCum += e.realized;
-    eventsWithCum.push({ ...e, cumulative: runningCum });
+    cumByMarket[e.market] = (cumByMarket[e.market] || 0) + e.realized;
+    eventsWithCum.push({
+      ...e,
+      cumulative: runningCum,
+      cumulative_market: cumByMarket[e.market],
+    });
     const date = e.created_at.slice(0, 10);
     realized_total += e.realized;
     dailyR[date] = (dailyR[date] || 0) + e.realized;
@@ -782,8 +788,8 @@ function renderTimeline(orders) {
     const realizedRow = o.side === "ask"
       ? `<div class="tl-row"><span style="color:var(--muted)">손익</span><span class="${o.realized >= 0 ? 'pos' : 'neg'}">${signed(o.realized)} 원</span></div>`
       : "";
-    const cumRow = o.cumulative != null
-      ? `<div class="tl-row"><span style="color:var(--muted)">누적</span><span class="${o.cumulative >= 0 ? 'pos' : 'neg'}">${signed(o.cumulative)} 원</span></div>`
+    const cumRow = o.cumulative_market != null
+      ? `<div class="tl-row"><span style="color:var(--muted)">${market} 누적</span><span class="${o.cumulative_market >= 0 ? 'pos' : 'neg'}">${signed(o.cumulative_market)} 원</span></div>`
       : "";
 
     return `<div class="tl-card ${cls}">
