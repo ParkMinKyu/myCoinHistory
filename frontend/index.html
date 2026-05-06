@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>myCoinHistory · 누적 손익</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif; margin: 0; padding: 24px; max-width: 1100px; }
+    h1 { font-size: 20px; margin: 0 0 16px; }
+    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .card { padding: 14px 16px; border: 1px solid #d0d7de; border-radius: 8px; }
+    .card .label { font-size: 12px; color: #57606a; }
+    .card .value { font-size: 22px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .pos { margin-top: 8px; font-variant-numeric: tabular-nums; color: #1a7f37; }
+    .neg { margin-top: 8px; font-variant-numeric: tabular-nums; color: #cf222e; }
+    .chart-wrap { border: 1px solid #d0d7de; border-radius: 8px; padding: 12px; height: 420px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 24px; font-variant-numeric: tabular-nums; font-size: 13px; }
+    th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid #eaeef2; }
+    th:first-child, td:first-child { text-align: left; }
+    th { background: #f6f8fa; font-weight: 600; }
+    .toolbar { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; }
+    button { padding: 6px 12px; border: 1px solid #d0d7de; background: #f6f8fa; border-radius: 6px; cursor: pointer; }
+    button:hover { background: #eaeef2; }
+    .status { color: #57606a; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>myCoinHistory</h1>
+
+  <div class="toolbar">
+    <button id="reload">캐시로 다시 그리기</button>
+    <button id="refetch">업비트에서 새로 가져오기 (오래 걸림)</button>
+    <span class="status" id="status">로딩...</span>
+  </div>
+
+  <div class="summary" id="summary"></div>
+  <div class="chart-wrap"><canvas id="pnlChart"></canvas></div>
+
+  <h2 style="font-size: 16px; margin-top: 28px;">현재 보유</h2>
+  <table id="positions">
+    <thead>
+      <tr><th>코인</th><th>수량</th><th>평단가</th><th>현재가</th><th>미실현 손익</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+<script>
+const fmt = (n) => n == null ? "-" : Math.round(n).toLocaleString("ko-KR");
+const fmtNum = (n, d=4) => n == null ? "-" : Number(n).toLocaleString("ko-KR", { maximumFractionDigits: d });
+
+let chart;
+
+async function load(useCache) {
+  const status = document.getElementById("status");
+  status.textContent = useCache ? "캐시 로드 중..." : "업비트에서 가져오는 중 (수 분 소요)...";
+  const url = `/api/pnl?cache=${useCache ? 1 : 0}`;
+  let data;
+  try {
+    const resp = await fetch(url);
+    data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+  } catch (e) {
+    status.textContent = "에러: " + e.message;
+    return;
+  }
+  status.textContent = `거래 ${data.trades_count}건 · 스킵 ${data.skipped_count}건`;
+
+  renderSummary(data);
+  renderChart(data.daily);
+  renderPositions(data.positions);
+}
+
+function renderSummary(d) {
+  const total = (d.realized_total || 0) + (d.unrealized_total || 0);
+  const cards = [
+    ["총 손익 (실현+미실현)", total],
+    ["실현 손익", d.realized_total],
+    ["미실현 손익", d.unrealized_total],
+    ["거래 건수", d.trades_count, true],
+  ];
+  document.getElementById("summary").innerHTML = cards.map(([label, v, raw]) => {
+    const cls = raw ? "" : (v >= 0 ? "pos" : "neg");
+    const text = raw ? v.toLocaleString("ko-KR") : fmt(v) + " 원";
+    return `<div class="card"><div class="label">${label}</div><div class="value ${cls}">${text}</div></div>`;
+  }).join("");
+}
+
+function renderChart(daily) {
+  const ctx = document.getElementById("pnlChart");
+  if (chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: daily.map(d => d.date),
+      datasets: [{
+        label: "누적 실현 손익 (원)",
+        data: daily.map(d => d.cumulative),
+        borderColor: "#0969da",
+        backgroundColor: "rgba(9, 105, 218, 0.1)",
+        fill: true,
+        tension: 0.1,
+        pointRadius: 0,
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        y: { ticks: { callback: v => Math.round(v).toLocaleString("ko-KR") } }
+      },
+      plugins: {
+        tooltip: { callbacks: { label: c => Math.round(c.parsed.y).toLocaleString("ko-KR") + " 원" } }
+      }
+    }
+  });
+}
+
+function renderPositions(rows) {
+  const tbody = document.querySelector("#positions tbody");
+  tbody.innerHTML = rows.map(r => {
+    const cls = (r.unrealized || 0) >= 0 ? "pos" : "neg";
+    return `<tr>
+      <td>${r.market}</td>
+      <td>${fmtNum(r.volume, 8)}</td>
+      <td>${fmt(r.avg_price)}</td>
+      <td>${fmt(r.current_price)}</td>
+      <td class="${cls}">${fmt(r.unrealized)}</td>
+    </tr>`;
+  }).join("");
+}
+
+document.getElementById("reload").onclick = () => load(true);
+document.getElementById("refetch").onclick = () => load(false);
+load(true);
+</script>
+</body>
+</html>
