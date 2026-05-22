@@ -771,14 +771,26 @@ function renderSummary(d) {
   // 코인 필터가 걸리면 현금/지갑은 계좌 전체 값이라 안 바뀜 → 숨겨서 혼란 방지.
   const coinFiltered = STATE.filter.markets.size > 0;
 
-  // ── 현금 (입금 / 출금 / 순손익) ── 각주: 출금 수수료만. 코인 필터 시 숨김.
+  // ── 현금 (입금 / 출금 / 순손익) ── 코인 필터 시 숨김. 기간 필터는 반영.
   if (cash && !coinFiltered) {
-    const net = (cash.total_out || 0) - (cash.total_in || 0);
+    const f = STATE.filter;
+    const inRange = (date) =>
+      (!f.start || date >= f.start) && (!f.end || date <= f.end);
+    let totalIn = cash.total_in, totalOut = cash.total_out, ranged = false;
+    // 기간 필터가 걸렸고 일자별 입출금 내역이 있으면 그 범위만 합산
+    if ((f.start || f.end) && (cash.deposits?.length || cash.withdraws?.length)) {
+      totalIn = (cash.deposits || []).filter(x => inRange(x.date)).reduce((s, x) => s + x.amount, 0);
+      totalOut = (cash.withdraws || []).filter(x => inRange(x.date)).reduce((s, x) => s + x.amount, 0);
+      ranged = true;
+    }
+    const net = totalOut - totalIn;
     const wf = cash.withdraw_fee || 0;
-    const feeNote = wf > 0 ? `출금 − 입금 · 출금수수료 ${fmt(wf)}원 포함` : "출금 − 입금";
+    let feeNote = "출금 − 입금";
+    if (ranged) feeNote += " · 기간 내";
+    else if (wf > 0) feeNote += ` · 출금수수료 ${fmt(wf)}원 포함`;
     groups.push(["현금", [
-      ["총 입금", cash.total_in, "krwMuted"],
-      ["총 출금", cash.total_out, "krwMuted"],
+      ["총 입금", totalIn, "krwMuted"],
+      ["총 출금", totalOut, "krwMuted"],
       ["순손익", net, "krw", null, feeNote],
     ]]);
   }
@@ -802,35 +814,32 @@ function renderSummary(d) {
   }
   groups.push(["코인", coinCards]);
 
-  // ── 지갑 (코인 입금 / 출금 / 순이동) — 코인 필터 시 그 코인만 집계 ──
+  // ── 지갑 (코인 입금 / 출금 / 순이동) — 코인+기간 필터 모두 반영 ──
   const w = STATE.wallet;
   if (w) {
-    let inVal = w.in_value, outVal = w.out_value;
-    let title = "지갑 (코인 전송, 시점시세 평가)";
-    if (coinFiltered) {
-      // 필터된 코인들만 in_detail/out_detail에서 합산
-      const sel = STATE.filter.markets;  // "KRW-XRP" 등
-      const sumDetail = (rows) => (rows || [])
-        .filter(r => sel.has("KRW-" + r.currency))
+    const f = STATE.filter;
+    const sel = f.markets;
+    const inRange = (date) => (!f.start || date >= f.start) && (!f.end || date <= f.end);
+    // 건별 events로 코인+기간 필터 합산 (events 없으면 detail 합계로 폴백)
+    const sumEvents = (events, detailRows) => {
+      if (events) return events
+        .filter(e => (sel.size === 0 || sel.has("KRW-" + e.currency)) && inRange(e.date))
+        .reduce((s, e) => s + e.value, 0);
+      return (detailRows || [])
+        .filter(r => sel.size === 0 || sel.has("KRW-" + r.currency))
         .reduce((s, r) => s + r.value, 0);
-      inVal = sumDetail(w.in_detail);
-      outVal = sumDetail(w.out_detail);
-      // 필터 코인에 전송이 전혀 없으면 지갑 그룹 자체를 건너뜀
-      if (inVal === 0 && outVal === 0) { /* skip */ }
-      else {
-        groups.push([title, [
-          ["입금", inVal, "krwMuted", null, "외부→업비트"],
-          ["출금", outVal, "krwMuted", null, "업비트→외부"],
-          ["순이동", inVal - outVal, "krw", null, "입금 − 출금"],
-        ]]);
-      }
-    } else {
+    };
+    const filtered = coinFiltered || f.start || f.end;
+    const inVal = sumEvents(w.in_events, w.in_detail);
+    const outVal = sumEvents(w.out_events, w.out_detail);
+    if (!(filtered && inVal === 0 && outVal === 0)) {  // 필터 후 전송 없으면 숨김
       const outFee = w.out_fee_krw || 0;
-      const outNote = outFee > 0 ? `업비트→외부 · 출금수수료 ≈${fmt(outFee)}원 포함` : "업비트→외부";
-      groups.push([title, [
+      const outNote = (!filtered && outFee > 0)
+        ? `업비트→외부 · 출금수수료 ≈${fmt(outFee)}원 포함` : "업비트→외부";
+      groups.push(["지갑 (코인 전송, 시점시세 평가)", [
         ["입금", inVal, "krwMuted", null, "외부→업비트"],
         ["출금", outVal, "krwMuted", null, outNote],
-        ["순이동", w.net_flow, "krw", null, "입금 − 출금"],
+        ["순이동", inVal - outVal, "krw", null, "입금 − 출금"],
       ]]);
     }
   }
@@ -1200,15 +1209,37 @@ function renderPositions(rows) {
 // 코인 손익 랭킹 (시점시세 손익 기준) — 수익/손해 TOP 5
 function renderRanking() {
   const panel = document.getElementById("ranking-panel");
-  const mp = STATE.marketPnl;
-  if (!mp) { panel.style.display = "none"; return; }
-  let entries = Object.entries(mp.per_market);
-  if (STATE.filter.markets.size > 0) entries = entries.filter(([m]) => STATE.filter.markets.has(m));
+  const note = document.getElementById("ranking-note");
+  const f = STATE.filter;
+  const dateFiltered = !!(f.start || f.end);
+
+  // 기간 필터가 걸리면 그 기간 거래만으로 계산한 per_market(평단법) 사용.
+  // 안 걸리면 전체 시점시세 손익(marketPnl) 사용 (전송 보정 더 정확).
+  let perMarket, det;
+  if (dateFiltered) {
+    const agg = aggregate();  // 기간+코인 필터 반영됨
+    perMarket = {};
+    det = {};
+    for (const pm of agg.per_market) {
+      perMarket[pm.market] = pm.realized;
+      const bv = pm.buy_funds, sv = pm.sell_funds;
+      det[pm.market] = {
+        avg_buy_price: 0, avg_sell_price: 0,  // 기간 평균단가는 생략(- 표시)
+        return_pct: pm.buy_funds > 0 ? pm.realized / pm.buy_funds * 100 : null,
+      };
+    }
+  } else {
+    const mp = STATE.marketPnl;
+    if (!mp) { panel.style.display = "none"; return; }
+    perMarket = mp.per_market;
+    det = mp.detail || {};
+  }
+
+  let entries = Object.entries(perMarket);
+  if (f.markets.size > 0) entries = entries.filter(([m]) => f.markets.has(m));
   entries = entries.filter(([, v]) => Math.abs(v) >= 1000);  // 푼돈 제외
   if (!entries.length) { panel.style.display = "none"; return; }
   panel.style.display = "";
-
-  const det = mp.detail || {};
   // 정렬 키: 손익(금액) 또는 수익률(%). 수익률 없는(입금만) 코인은 맨 뒤로.
   const sortKey = (e) => {
     if (STATE.rankSort === "pct") {
@@ -1254,12 +1285,10 @@ function renderRanking() {
   renderSide("top", tops);
   renderSide("bottom", bottoms);
 
-  // 타이틀 각주: 상폐 코인 있으면 부정확 경고
-  const note = document.getElementById("ranking-note");
+  // 타이틀 각주: 기간 필터 시 평단법, 아니면 시점시세 + 상폐 경고
+  const base = dateFiltered ? "· 기간 내 실현손익(평단법)" : "· 시점시세 손익 기준";
   const hasDelisted = [...tops, ...bottoms].some(e => STATE.delisted.has(e[0]));
-  note.textContent = hasDelisted
-    ? "· 시점시세 손익 기준 · ⚠ 상폐 코인은 시세 조회 불가로 부정확할 수 있음"
-    : "· 시점시세 손익 기준";
+  note.textContent = hasDelisted ? base + " · ⚠ 상폐 코인 부정확할 수 있음" : base;
 }
 
 // 실제 지갑 입출금 내역 (wallet.out_detail/in_detail) — 위 '지갑' 그룹과 동일 출처.

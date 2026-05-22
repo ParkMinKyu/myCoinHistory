@@ -141,13 +141,16 @@ def _load_wallet(use_cache: bool) -> dict:
             time.sleep(0.08)  # 시세 API rate limit 여유
         return price_cache[key]
 
-    def value(items: list[dict], include_fee: bool) -> tuple[float, float, list[dict]]:
+    def value(items: list[dict], include_fee: bool):
         """items의 시점시세 평가. 출금이면 include_fee=True → 수수료까지 더해
-        '계좌에서 실제 빠진 양'으로 평가. fee의 KRW 환산합도 따로 반환.
+        '계좌에서 실제 빠진 양'으로 평가. fee의 KRW 환산합도 반환.
+
+        반환: (total, fee_krw, 코인별합계 rows, 건별 events[date,currency,amount,value])
         """
         total = 0.0
         fee_krw = 0.0
         detail: dict[str, dict] = {}
+        events: list[dict] = []
         for it in items:
             cur = it["currency"]
             market = f"KRW-{cur}"
@@ -161,8 +164,10 @@ def _load_wallet(use_cache: bool) -> dict:
             d["amount"] += qty
             d["value"] += val
             d["count"] += 1
+            events.append({"date": (it.get("created_at") or "")[:10], "currency": cur,
+                           "amount": qty, "value": val})
         rows = sorted(detail.values(), key=lambda r: -r["value"])
-        return total, fee_krw, rows
+        return total, fee_krw, rows, events
 
     try:
         deps = client.get_coin_transfers("deposits")
@@ -171,8 +176,8 @@ def _load_wallet(use_cache: bool) -> dict:
         print(f"[wallet] transfer fetch failed: {e}")
         return {}
 
-    in_total, _, in_rows = value(deps, include_fee=False)
-    out_total, out_fee_krw, out_rows = value(wds, include_fee=True)
+    in_total, _, in_rows, in_events = value(deps, include_fee=False)
+    out_total, out_fee_krw, out_rows, out_events = value(wds, include_fee=True)
     summary = {
         "in_value": in_total,   # 외부에서 입금받은 코인의 시점평가 (자산 유입)
         "out_value": out_total,  # 외부로 출금한 코인의 시점평가 (수수료 포함, 자산 유출)
@@ -181,6 +186,8 @@ def _load_wallet(use_cache: bool) -> dict:
         "out_fee_krw": out_fee_krw,  # 코인 출금 수수료의 KRW 환산합 (각주용)
         "in_detail": in_rows,
         "out_detail": out_rows,
+        "in_events": in_events,    # 건별 (날짜 필터용)
+        "out_events": out_events,
     }
     WALLET_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
     WALLET_CACHE_FILE.write_text(json.dumps(summary, ensure_ascii=False))
