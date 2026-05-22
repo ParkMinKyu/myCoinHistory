@@ -150,6 +150,18 @@ def main() -> None:
     # 현재가: 마지막 단가 ± 변동
     current = {m: p * random.uniform(0.8, 1.3) for m, p in prices.items()}
 
+    # 상폐 코인: 거래한 코인 중 현재 업비트 마켓에 없는 것 (공개 API, 인증 불필요)
+    delisted = []
+    try:
+        import requests
+        r = requests.get("https://api.upbit.com/v1/market/all", timeout=10)
+        if r.ok:
+            active = {m["market"] for m in r.json()}
+            traded = {o["market"] for o in orders}
+            delisted = sorted(m for m in traded if m not in active)
+    except Exception as e:
+        print(f"[delisted] 조회 실패(무시): {e}")
+
     result = calc_pnl(orders)
     unreal = unrealized_pnl(result.positions, current)
 
@@ -205,7 +217,7 @@ def main() -> None:
         "wallet": None,
         "real_balances": {m: p.volume for m, p in result.positions.items() if p.volume > 0},
         "market_pnl": {"total": sum(mp_per.values()), "per_market": mp_per, "detail": mp_detail},
-        "delisted": [],
+        "delisted": delisted,
         "trade_fee": trade_fee,
         "trade_fee_clean": trade_fee,
         "daily": [{"date": d.date, "realized": d.realized, "cumulative": d.cumulative_realized}
