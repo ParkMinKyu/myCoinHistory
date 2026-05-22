@@ -803,8 +803,10 @@ function renderSummary(d) {
     ["총 매도", d.total_sell, "krwMuted"],
     ["순현금 손익", d.net_cash, "krw", null, "매도 − 매수 (통장 기준)"],
   ];
-  if (STATE.marketPnl) {
-    // 코인 필터 시 선택 코인만 합산, 아니면 전체 total
+  // 시점시세 손익: 전체 기간 시간순 시뮬레이션값이라 기간 분할 불가 →
+  // 기간 필터 시엔 숨김(순현금 손익이 기간 손익을 대신함). 코인 필터만이면 합산.
+  const dateFiltered = !!(STATE.filter.start || STATE.filter.end);
+  if (STATE.marketPnl && !dateFiltered) {
     let mp = STATE.marketPnl.total;
     if (STATE.filter.markets.size > 0) {
       mp = 0;
