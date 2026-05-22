@@ -41,9 +41,11 @@
     .header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 20px; flex-wrap: wrap; gap: 8px; }
     .status { color: var(--muted); font-size: 13px; }
 
-    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .summary { display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px; }
+    .sgroup-title { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+    .sgroup-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
     @media (max-width: 600px) {
-      .summary { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+      .sgroup-cards { grid-template-columns: repeat(2, 1fr); gap: 8px; }
       .card { padding: 10px 12px; }
       .card .value { font-size: 18px; }
     }
@@ -55,6 +57,7 @@
     }
     .card .label { font-size: 12px; color: var(--muted); }
     .card .value { font-size: 22px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .card .sublabel { font-size: 11px; color: var(--muted); margin-top: 2px; }
     .pos { color: var(--pos); }
     .neg { color: var(--neg); }
 
@@ -187,6 +190,26 @@
       color: var(--muted);
     }
     .chip.active { background: var(--bid); color: white; border-color: var(--bid); }
+
+    /* 랭킹 테이블 */
+    .rank-table { width: 100%; font-variant-numeric: tabular-nums; font-size: 12px; }
+    .rank-table th { padding: 4px 8px; text-align: right; font-size: 10px; color: var(--muted); font-weight: 600; text-transform: uppercase; }
+    .rank-table th:nth-child(2) { text-align: left; }
+    .rank-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: right; }
+    .rank-table td:first-child { color: var(--muted); width: 20px; text-align: center; }
+    .rank-table td:nth-child(2) { font-weight: 600; text-align: left; }
+    .rank-more { margin-top: 8px; width: 100%; font-size: 12px; color: var(--muted); }
+
+    /* 상세 더보기 */
+    details.more { margin-bottom: 20px; }
+    details.more > summary {
+      cursor: pointer; padding: 12px 16px; border: 1px solid var(--border); border-radius: 10px;
+      background: var(--bg-soft); font-size: 13px; font-weight: 600; color: var(--muted);
+      list-style: none; user-select: none;
+    }
+    details.more > summary::-webkit-details-marker { display: none; }
+    details.more > summary::before { content: "▸ "; }
+    details.more[open] > summary::before { content: "▾ "; }
   </style>
 </head>
 <body>
@@ -196,8 +219,10 @@
       <div class="status" id="status">로딩...</div>
     </div>
     <div class="toolbar">
+      <a href="./ledger.html" style="align-self:center;font-size:13px;">📒 일자별 거래내역</a>
       <button id="reload" style="display:none;">캐시로 다시</button>
       <button id="refetch" style="display:none;">업비트에서 새로</button>
+      <button id="refetch-all" style="display:none;">전체(2017~) 긁어오기</button>
     </div>
   </div>
 
@@ -222,40 +247,71 @@
 
   <div class="summary" id="summary"></div>
 
+  <div class="panel" id="ranking-panel" style="display:none;">
+    <h2>코인 손익 랭킹 <span id="ranking-note" style="color:var(--muted);font-weight:400;font-size:12px;text-transform:none;letter-spacing:0;">· 시점시세 손익 기준</span></h2>
+    <div class="filter-row" style="margin-bottom:12px;">
+      <span style="font-size:12px;color:var(--muted);font-weight:600;">정렬</span>
+      <button class="chip rank-sort active" data-sort="pnl">손익(금액)</button>
+      <button class="chip rank-sort" data-sort="pct">수익률(%)</button>
+    </div>
+    <div class="grid-2">
+      <div>
+        <div style="font-size:12px;font-weight:700;color:var(--pos);margin-bottom:6px;">📈 수익 순위</div>
+        <table class="rank-table" id="rank-top">
+          <thead><tr><th></th><th>코인</th><th>평균매수</th><th>평균매도</th><th>손익</th><th>수익률</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <button class="rank-more" data-side="top" style="display:none;">더보기 (10개)</button>
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:700;color:var(--neg);margin-bottom:6px;">📉 손해 순위</div>
+        <table class="rank-table" id="rank-bottom">
+          <thead><tr><th></th><th>코인</th><th>평균매수</th><th>평균매도</th><th>손익</th><th>수익률</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <button class="rank-more" data-side="bottom" style="display:none;">더보기 (10개)</button>
+      </div>
+    </div>
+  </div>
+
   <div class="panel">
     <h2>누적 실현 손익 + 일자별 손익</h2>
     <div class="chart-wrap tall"><canvas id="chartCum"></canvas></div>
   </div>
 
-  <div class="grid-2">
-    <div class="panel">
-      <h2>코인별 보유 비중 (현재 평가액)</h2>
-      <div class="chart-wrap"><canvas id="chartDoughnut"></canvas></div>
-    </div>
-    <div class="panel">
-      <h2>코인별 누적 손익 (실현 + 미실현)</h2>
-      <div class="chart-wrap"><canvas id="chartBar"></canvas></div>
-    </div>
-  </div>
+  <details id="more-details" class="more">
+    <summary>상세 분석 더보기 (코인별 손익 · 분포 · 빈도 · 보유)</summary>
 
-  <div class="panel">
-    <h2>거래별 손익 분포 (매도 거래만)</h2>
-    <div class="chart-wrap"><canvas id="chartHist"></canvas></div>
-  </div>
-
-  <div class="panel">
-    <h2>거래 빈도 (최근 1년)</h2>
-    <div id="heatmap"></div>
-    <div class="hm-legend">
-      <span>적음</span>
-      <span class="hm-cell"></span>
-      <span class="hm-cell l1"></span>
-      <span class="hm-cell l2"></span>
-      <span class="hm-cell l3"></span>
-      <span class="hm-cell l4"></span>
-      <span>많음</span>
+    <div class="grid-2" style="margin-top:16px;">
+      <div class="panel" id="panel-doughnut">
+        <h2>코인별 보유 비중 (현재 평가액)</h2>
+        <div class="chart-wrap"><canvas id="chartDoughnut"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>코인별 누적 손익 (실현 + 미실현)</h2>
+        <div class="chart-wrap"><canvas id="chartBar"></canvas></div>
+      </div>
     </div>
-  </div>
+
+    <div class="panel">
+      <h2>거래별 손익 분포 (매도 거래만)</h2>
+      <div class="chart-wrap"><canvas id="chartHist"></canvas></div>
+    </div>
+
+    <div class="panel">
+      <h2>거래 빈도 (최근 1년)</h2>
+      <div id="heatmap"></div>
+      <div class="hm-legend">
+        <span>적음</span>
+        <span class="hm-cell"></span>
+        <span class="hm-cell l1"></span>
+        <span class="hm-cell l2"></span>
+        <span class="hm-cell l3"></span>
+        <span class="hm-cell l4"></span>
+        <span>많음</span>
+      </div>
+    </div>
+  </details>
 
   <div class="panel">
     <h2>매매 흐름 <span id="timeline-count" style="color:var(--muted);font-weight:400;font-size:12px;text-transform:none;letter-spacing:0;"></span></h2>
@@ -266,12 +322,24 @@
     <div class="timeline" id="timeline"></div>
   </div>
 
-  <div class="panel">
-    <h2>현재 보유</h2>
+  <div class="panel" id="positions-panel">
+    <h2>현재 보유 <span id="positions-note" style="color:var(--muted);font-weight:400;font-size:12px;text-transform:none;letter-spacing:0;"></span></h2>
     <div class="table-wrap">
       <table id="positions">
         <thead>
           <tr><th>코인</th><th>수량</th><th>평단가</th><th>현재가</th><th>평가액</th><th>미실현 손익</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel" id="transfers-panel" style="display:none;">
+    <h2>외부 출금 / 입금 <span style="color:var(--muted);font-weight:400;font-size:12px;text-transform:none;letter-spacing:0;">· 실제 지갑 입출금 내역 (시점시세 평가)</span></h2>
+    <div class="table-wrap">
+      <table id="transfers">
+        <thead>
+          <tr><th>코인</th><th>구분</th><th>수량</th><th>건수</th><th>시점 평가액</th></tr>
         </thead>
         <tbody></tbody>
       </table>
@@ -290,6 +358,13 @@ const STATE = {
   events: [],          // 시뮬레이션 결과 (각 거래 + 그 시점 realized)
   positions: {},       // 전체 기간 누적 보유
   currentPrices: {},   // market -> 현재가
+  cash: null,          // {total_in, total_out, net} KRW 입출금 요약
+  realBalances: null,  // market -> 실제 업비트 잔고 (계산상 잔량과 비교용)
+  transferMarkets: new Set(), // 외부 전송 있는 코인 (평단법 손익 제외 대상)
+  delisted: new Set(),  // 상폐 코인 (시세 조회 불가 → 손익 부정확)
+  wallet: null,        // 코인 입출금 시점평가 {in_value, out_value, net_flow, ...}
+  rankShow: { top: 10, bottom: 10 },  // 랭킹 표시 개수 (더보기로 +10)
+  rankSort: "pnl",   // 랭킹 정렬 기준: "pnl"(손익금액) | "pct"(수익률)
   meta: { mock: false, source: "static" },
   filter: { start: null, end: null, markets: new Set() },
   timelineSort: "asc",        // "asc" 오래된순 | "desc" 최신순
@@ -299,12 +374,14 @@ const STATE = {
 const TIMELINE_PAGE = 100;
 let _timelineObserver = null;
 
-async function fetchData(useCache) {
+async function fetchData(useCache, startDate) {
   try {
     const r = await fetch("./result.json", { cache: "no-store" });
     if (r.ok) return { data: await r.json(), source: "static" };
   } catch (_) {}
-  const resp = await fetch(`/api/pnl?cache=${useCache ? 1 : 0}`);
+  let url = `/api/pnl?cache=${useCache ? 1 : 0}`;
+  if (startDate) url += `&start=${encodeURIComponent(startDate)}`;
+  const resp = await fetch(url);
   const d = await resp.json();
   if (!resp.ok) throw new Error(d.error || resp.statusText);
   return { data: d, source: "api" };
@@ -348,6 +425,8 @@ function aggregate() {
   });
 
   let realized_total = 0;
+  let realized_clean = 0;  // 외부 전송 코인 제외 (신뢰 가능 거래 손익)
+  let nBuy = 0, nSell = 0, sumBuy = 0, sumSell = 0;  // 평균 구매/판매액용
   const dailyR = {}, dailyT = {}, perMarket = {};
   // 매도 거래(realized != 0)만 수익/손실 통계 대상
   const wins = [], losses = [];
@@ -374,6 +453,7 @@ function aggregate() {
     });
     const date = e.created_at.slice(0, 10);
     realized_total += e.realized;
+    if (e.side === "ask" && !STATE.transferMarkets.has(e.market)) realized_clean += e.realized;
     dailyR[date] = (dailyR[date] || 0) + e.realized;
     dailyT[date] = (dailyT[date] || 0) + 1;
     if (!perMarket[e.market]) {
@@ -384,8 +464,10 @@ function aggregate() {
     pm.trades += 1;
     if (e.side === "bid") {
       pm.buy_funds += e.executed_funds + e.paid_fee;
+      nBuy++; sumBuy += e.executed_funds;
     } else if (e.side === "ask") {
       pm.sell_funds += e.executed_funds - e.paid_fee;
+      nSell++; sumSell += e.executed_funds;
       if (e.realized > 0) { wins.push(e.realized); pm.wins += 1; }
       else if (e.realized < 0) { losses.push(e.realized); pm.losses += 1; }
     }
@@ -396,9 +478,15 @@ function aggregate() {
   const avgLoss = losses.length > 0 ? losses.reduce((a, b) => a + b, 0) / losses.length : 0;
   const profitFactor = avgLoss !== 0 ? avgWin / Math.abs(avgLoss) : 0;
   let total_buy = 0, total_sell = 0;
+  // 외부이동 손익 = 전송 코인의 현금흐름(매도금-매수금). 출금분이 손실로 잡힘.
+  // 실현손익(순수거래)에서 빠진 만큼이 여기로 들어와 현금손익과 정합한다.
+  let transfer_flow = 0;
   for (const pm of Object.values(perMarket)) {
     total_buy += pm.buy_funds;
     total_sell += pm.sell_funds;
+    if (STATE.transferMarkets.has(pm.market)) {
+      transfer_flow += (pm.sell_funds - pm.buy_funds);
+    }
   }
 
   // daily cumulative (필터된 거래만으로 다시 누적)
@@ -439,8 +527,11 @@ function aggregate() {
 
   return {
     trades_count: filtered.length,
-    realized_total, unrealized_total,
-    total_buy, total_sell,
+    realized_total, realized_clean, unrealized_total,
+    net_cash: total_sell - total_buy,  // 순현금 손익 = 매도금(수수료뺀) - 매수금(수수료포함)
+    total_buy, total_sell, transfer_flow,
+    avg_buy: nBuy > 0 ? sumBuy / nBuy : 0,    // 건당 평균 구매액
+    avg_sell: nSell > 0 ? sumSell / nSell : 0,  // 건당 평균 판매액
     daily, daily_trades,
     per_market: Object.values(perMarket),
     positions: filteredPositions,
@@ -469,6 +560,15 @@ function renderAll() {
   renderHeatmap(agg.daily_trades);
   renderTimeline(agg.recent_orders);
   renderPositions(agg.positions);
+  renderTransfers();
+  renderRanking();
+
+  // 보유 0이면 보유/비중 패널 숨김 (의미 없음)
+  const hasHoldings = STATE.realBalances && Object.keys(STATE.realBalances).length > 0;
+  const posPanel = document.getElementById("positions-panel");
+  const doughPanel = document.getElementById("panel-doughnut");
+  if (posPanel) posPanel.style.display = (STATE.realBalances && !hasHoldings) ? "none" : "";
+  if (doughPanel) doughPanel.style.display = (STATE.realBalances && !hasHoldings) ? "none" : "";
 }
 
 function setupFilters() {
@@ -552,12 +652,14 @@ function setupFilters() {
   });
 }
 
-async function load(useCache) {
+async function load(useCache, startDate) {
   const status = document.getElementById("status");
-  status.textContent = useCache ? "로드 중..." : "업비트에서 가져오는 중...";
+  status.textContent = useCache
+    ? "로드 중..."
+    : (startDate ? `업비트에서 ${startDate}부터 전체 가져오는 중... (수 분 소요)` : "업비트에서 가져오는 중...");
   let data, source;
   try {
-    ({ data, source } = await fetchData(useCache));
+    ({ data, source } = await fetchData(useCache, startDate));
   } catch (e) {
     status.textContent = "에러: " + e.message;
     return;
@@ -581,51 +683,165 @@ async function load(useCache) {
   for (const p of data.positions || []) {
     if (p.current_price) STATE.currentPrices[p.market] = p.current_price;
   }
+  STATE.cash = data.cash || null;
+  STATE.realBalances = data.real_balances || null;  // market -> 실제 잔고 (null이면 mock/조회실패)
+  STATE.transferMarkets = new Set(data.transfer_markets || []);  // 외부 전송 있는 코인
+  STATE.wallet = data.wallet || null;  // {in_value, out_value, net_flow, in_detail, out_detail}
+  STATE.tradeFee = data.trade_fee || 0;          // 거래 수수료 전체
+  STATE.tradeFeeClean = data.trade_fee_clean || 0; // 비전송 코인 거래 수수료 (실현손익 각주용)
+  STATE.marketPnl = data.market_pnl || null;     // {total, per_market} 시점시세 손익
+  STATE.delisted = new Set(data.delisted || []); // 상폐 코인 (시세없음 → 손익 부정확)
 
   if (source !== "static") {
     document.getElementById("reload").style.display = "";
     document.getElementById("refetch").style.display = "";
+    document.getElementById("refetch-all").style.display = "";
   }
   document.getElementById("filters").style.display = "";
+
+  // <details> 안 차트는 처음엔 display:none이라 0-size로 그려짐 → 펼칠 때 한 번 재렌더
+  const moreEl = document.getElementById("more-details");
+  if (moreEl && !moreEl._wired) {
+    moreEl._wired = true;
+    moreEl.addEventListener("toggle", () => {
+      if (moreEl.open) {
+        const agg = aggregate();
+        renderDoughnut(agg.per_market);
+        renderBar(agg.per_market);
+        renderHistogram(agg.sell_realized);
+        renderHeatmap(agg.daily_trades);
+      }
+    });
+  }
+
+  // 랭킹 더보기 버튼 (1회 바인딩)
+  document.querySelectorAll(".rank-more").forEach(btn => {
+    if (btn._wired) return;
+    btn._wired = true;
+    btn.onclick = () => { STATE.rankShow[btn.dataset.side] += 10; renderRanking(); };
+  });
+  // 랭킹 정렬 토글 (손익/수익률)
+  document.querySelectorAll(".rank-sort").forEach(btn => {
+    if (btn._wired) return;
+    btn._wired = true;
+    btn.onclick = () => {
+      document.querySelectorAll(".rank-sort").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      STATE.rankSort = btn.dataset.sort;
+      STATE.rankShow = { top: 10, bottom: 10 };  // 정렬 바꾸면 10개로 리셋
+      renderRanking();
+    };
+  });
 
   setupFilters();
   renderAll();
 }
 
 function renderSummary(d) {
-  const total = (d.realized_total || 0) + (d.unrealized_total || 0);
   const winRatePct = (d.win_rate * 100).toFixed(1) + "%";
-  const pfText = d.profit_factor > 0 ? d.profit_factor.toFixed(2) : "-";
-  const wlText = `${d.win_count} / ${d.loss_count}`;
-  const netCash = (d.total_sell || 0) - (d.total_buy || 0);
-  const cards = [
-    ["누적 손익 (총)", total],
-    ["팔았을 때 수익 (실현)", d.realized_total],
-    ["미실현 손익", d.unrealized_total],
-    ["총 구매", d.total_buy, "krw", "muted"],
-    ["총 판매", d.total_sell, "krw", "muted"],
-    ["순현금흐름 (판매-구매)", netCash],
-    ["거래 건수", d.trades_count, "raw"],
-    ["승률", winRatePct, "text", d.win_rate >= 0.5 ? "pos" : "neg"],
-    ["수익/손실 거래", wlText, "text"],
-    ["평균 수익", d.avg_win, "krw", "pos"],
-    ["평균 손실", d.avg_loss, "krw", "neg"],
-    ["손익비", pfText, "text", d.profit_factor >= 1 ? "pos" : "neg"],
+  const cash = STATE.cash;
+  const transferN = STATE.transferMarkets ? STATE.transferMarkets.size : 0;
+
+  // 카드 한 칸: [label, value, mode, forceCls, sub]
+  // mode: "krw"(원, 부호색) | "krwMuted"(원, 회색) | "raw"(숫자) | "text"
+  const groups = [];
+  // 코인 필터가 걸리면 현금/지갑은 계좌 전체 값이라 안 바뀜 → 숨겨서 혼란 방지.
+  const coinFiltered = STATE.filter.markets.size > 0;
+
+  // ── 현금 (입금 / 출금 / 순손익) ── 각주: 출금 수수료만. 코인 필터 시 숨김.
+  if (cash && !coinFiltered) {
+    const net = (cash.total_out || 0) - (cash.total_in || 0);
+    const wf = cash.withdraw_fee || 0;
+    const feeNote = wf > 0 ? `출금 − 입금 · 출금수수료 ${fmt(wf)}원 포함` : "출금 − 입금";
+    groups.push(["현금", [
+      ["총 입금", cash.total_in, "krwMuted"],
+      ["총 출금", cash.total_out, "krwMuted"],
+      ["순손익", net, "krw", null, feeNote],
+    ]]);
+  }
+
+  // ── 코인 (매수 / 매도 / 순현금손익 / 시점시세손익) ──
+  // 순현금: 매도-매수 (출금=상실, 통장 기준).
+  // 시점시세: 입금=시점매수/출금=시점매도 보정 (출금=처분 가정, 진짜 투자성과).
+  const coinCards = [
+    ["총 매수", d.total_buy, "krwMuted"],
+    ["총 매도", d.total_sell, "krwMuted"],
+    ["순현금 손익", d.net_cash, "krw", null, "매도 − 매수 (통장 기준)"],
   ];
-  document.getElementById("summary").innerHTML = cards.map(([label, v, mode, forceCls]) => {
-    let text, cls = forceCls || "";
-    if (mode === "raw") {
-      text = (v || 0).toLocaleString("ko-KR");
-    } else if (mode === "text") {
-      text = v;
-    } else if (mode === "krw") {
-      text = fmt(v) + " 원";
-    } else {
-      text = fmt(v) + " 원";
-      if (!cls) cls = (v || 0) >= 0 ? "pos" : "neg";
+  if (STATE.marketPnl) {
+    // 코인 필터 시 선택 코인만 합산, 아니면 전체 total
+    let mp = STATE.marketPnl.total;
+    if (STATE.filter.markets.size > 0) {
+      mp = 0;
+      for (const m of STATE.filter.markets) mp += (STATE.marketPnl.per_market[m] || 0);
     }
-    return `<div class="card"><div class="label">${label}</div><div class="value ${cls}">${text}</div></div>`;
-  }).join("");
+    coinCards.push(["시점시세 손익", mp, "krw", null, "입금=매수·출금=매도 (추정)"]);
+  }
+  groups.push(["코인", coinCards]);
+
+  // ── 지갑 (코인 입금 / 출금 / 순이동) — 코인 필터 시 그 코인만 집계 ──
+  const w = STATE.wallet;
+  if (w) {
+    let inVal = w.in_value, outVal = w.out_value;
+    let title = "지갑 (코인 전송, 시점시세 평가)";
+    if (coinFiltered) {
+      // 필터된 코인들만 in_detail/out_detail에서 합산
+      const sel = STATE.filter.markets;  // "KRW-XRP" 등
+      const sumDetail = (rows) => (rows || [])
+        .filter(r => sel.has("KRW-" + r.currency))
+        .reduce((s, r) => s + r.value, 0);
+      inVal = sumDetail(w.in_detail);
+      outVal = sumDetail(w.out_detail);
+      // 필터 코인에 전송이 전혀 없으면 지갑 그룹 자체를 건너뜀
+      if (inVal === 0 && outVal === 0) { /* skip */ }
+      else {
+        groups.push([title, [
+          ["입금", inVal, "krwMuted", null, "외부→업비트"],
+          ["출금", outVal, "krwMuted", null, "업비트→외부"],
+          ["순이동", inVal - outVal, "krw", null, "입금 − 출금"],
+        ]]);
+      }
+    } else {
+      const outFee = w.out_fee_krw || 0;
+      const outNote = outFee > 0 ? `업비트→외부 · 출금수수료 ≈${fmt(outFee)}원 포함` : "업비트→외부";
+      groups.push([title, [
+        ["입금", inVal, "krwMuted", null, "외부→업비트"],
+        ["출금", outVal, "krwMuted", null, outNote],
+        ["순이동", w.net_flow, "krw", null, "입금 − 출금"],
+      ]]);
+    }
+  }
+
+  // ── 거래 (총건수 / 승 / 패 / 승률) ──
+  groups.push(["거래", [
+    ["총 건수", d.trades_count, "raw"],
+    ["승", d.win_count, "raw", "pos"],
+    ["패", d.loss_count, "raw", "neg"],
+    ["승률", winRatePct, "text", d.win_rate >= 0.5 ? "pos" : "neg"],
+  ]]);
+
+  // ── 통계 (평균 구매/판매액) — 최고/최악 코인은 랭킹 패널에 있으니 제외 ──
+  groups.push(["통계", [
+    ["평균 구매액", d.avg_buy, "krwMuted", null, "건당"],
+    ["평균 판매액", d.avg_sell, "krwMuted", null, "건당"],
+  ]]);
+
+  const cardHtml = ([label, v, mode, forceCls, sub]) => {
+    let text, cls = forceCls || "";
+    if (mode === "raw") text = (v || 0).toLocaleString("ko-KR");
+    else if (mode === "text") text = v;
+    else if (mode === "krwMuted") { text = fmt(v) + " 원"; cls = forceCls || "muted"; }
+    else { text = fmt(v) + " 원"; if (!forceCls) cls = (v || 0) >= 0 ? "pos" : "neg"; }
+    const subHtml = sub ? `<div class="sublabel">${sub}</div>` : "";
+    return `<div class="card"><div class="label">${label}</div><div class="value ${cls}">${text}</div>${subHtml}</div>`;
+  };
+
+  document.getElementById("summary").innerHTML = groups.map(([title, cards]) =>
+    `<div class="sgroup">
+      <div class="sgroup-title">${title}</div>
+      <div class="sgroup-cards">${cards.map(cardHtml).join("")}</div>
+    </div>`
+  ).join("");
 }
 
 function renderCumulativeChart(daily) {
@@ -670,12 +886,10 @@ function renderCumulativeChart(daily) {
 }
 
 function renderHistogram(realizedList) {
-  const ctx = document.getElementById("chartHist");
   if (charts.hist) charts.hist.destroy();
-  if (!realizedList || realizedList.length === 0) {
-    ctx.parentElement.innerHTML = '<div style="color: var(--muted); padding: 20px;">매도 거래 없음</div>';
-    return;
-  }
+  if (!realizedList || realizedList.length === 0) { setChartEmpty("chartHist", "매도 거래 없음"); return; }
+  const ctx = setChartEmpty("chartHist", null);
+  if (!ctx) return;
   // 양수/음수 대칭 버킷: 분위수 기반
   const sorted = realizedList.slice().sort((a, b) => a - b);
   const absMax = Math.max(Math.abs(sorted[0]), Math.abs(sorted[sorted.length - 1]));
@@ -728,14 +942,35 @@ function renderHistogram(realizedList) {
 
 const PALETTE = ["#0969da", "#1a7f37", "#cf222e", "#bf8700", "#8250df", "#0550ae", "#3192aa", "#9a6700"];
 
+// canvas를 지우지 않고 빈 메시지만 토글 (canvas 삭제하면 다음 렌더 때 null 에러)
+function setChartEmpty(canvasId, msg) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return null;
+  const wrap = ctx.parentElement;
+  let note = wrap.querySelector(".chart-empty");
+  if (msg) {
+    ctx.style.display = "none";
+    if (!note) {
+      note = document.createElement("div");
+      note.className = "chart-empty";
+      note.style.cssText = "color:var(--muted);padding:20px;";
+      wrap.appendChild(note);
+    }
+    note.textContent = msg;
+    note.style.display = "";
+  } else {
+    ctx.style.display = "";
+    if (note) note.style.display = "none";
+  }
+  return ctx;
+}
+
 function renderDoughnut(perMarket) {
   const held = perMarket.filter(m => m.current_value > 0);
-  const ctx = document.getElementById("chartDoughnut");
   if (charts.dough) charts.dough.destroy();
-  if (!held.length) {
-    ctx.parentElement.innerHTML = '<div style="color: var(--muted); padding: 20px;">보유 코인 없음</div>';
-    return;
-  }
+  if (!held.length) { setChartEmpty("chartDoughnut", "보유 코인 없음"); return; }
+  const ctx = setChartEmpty("chartDoughnut", null);
+  if (!ctx) return;
   charts.dough = new Chart(ctx, {
     type: "doughnut",
     data: {
@@ -894,7 +1129,38 @@ function loadMoreTimeline() {
 
 function renderPositions(rows) {
   const tbody = document.querySelector("#positions tbody");
-  tbody.innerHTML = rows.map(r => {
+  const note = document.getElementById("positions-note");
+  const real = STATE.realBalances;
+
+  // 실제 잔고가 있으면 그걸 진실로 사용 (외부 출금된 코인은 여기 안 뜸).
+  // 코인 필터 적용. 평단/현재가는 계산상 포지션에서 가져옴(있으면).
+  let display;
+  if (real) {
+    note.textContent = "· 업비트 실제 잔고 기준";
+    const byMarket = {};
+    for (const r of rows) byMarket[r.market] = r;
+    display = Object.entries(real)
+      .filter(([m]) => STATE.filter.markets.size === 0 || STATE.filter.markets.has(m))
+      .map(([m, vol]) => {
+        const calc = byMarket[m] || {};
+        const cur = STATE.currentPrices[m] || calc.current_price || 0;
+        const avg = calc.avg_price || 0;
+        return {
+          market: m, volume: vol, avg_price: avg, current_price: cur,
+          unrealized: (cur && avg) ? (cur - avg) * vol : 0,
+        };
+      })
+      .sort((a, b) => (b.volume * b.current_price) - (a.volume * a.current_price));
+  } else {
+    note.textContent = "· 거래내역 계산 기준 (실제 잔고 조회 안 됨)";
+    display = rows;
+  }
+
+  if (!display.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px;">보유 코인 없음</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = display.map(r => {
     const cls = (r.unrealized || 0) >= 0 ? "pos" : "neg";
     const value = (r.volume || 0) * (r.current_price || 0);
     return `<tr>
@@ -908,8 +1174,113 @@ function renderPositions(rows) {
   }).join("");
 }
 
+// 코인 손익 랭킹 (시점시세 손익 기준) — 수익/손해 TOP 5
+function renderRanking() {
+  const panel = document.getElementById("ranking-panel");
+  const mp = STATE.marketPnl;
+  if (!mp) { panel.style.display = "none"; return; }
+  let entries = Object.entries(mp.per_market);
+  if (STATE.filter.markets.size > 0) entries = entries.filter(([m]) => STATE.filter.markets.has(m));
+  entries = entries.filter(([, v]) => Math.abs(v) >= 1000);  // 푼돈 제외
+  if (!entries.length) { panel.style.display = "none"; return; }
+  panel.style.display = "";
+
+  const det = mp.detail || {};
+  // 정렬 키: 손익(금액) 또는 수익률(%). 수익률 없는(입금만) 코인은 맨 뒤로.
+  const sortKey = (e) => {
+    if (STATE.rankSort === "pct") {
+      const p = det[e[0]] && det[e[0]].return_pct;
+      return (p == null) ? -Infinity : p;
+    }
+    return e[1];
+  };
+  const sortedTop = entries.slice().sort((a, b) => sortKey(b) - sortKey(a));
+  const sortedBottom = entries.slice().sort((a, b) => sortKey(a) - sortKey(b));
+  const row = (e, i) => {
+    const d = det[e[0]] || {};
+    const ab = d.avg_buy_price ? fmt(d.avg_buy_price) : "-";
+    const as = d.avg_sell_price ? fmt(d.avg_sell_price) : "-";
+    const pct = (d.return_pct == null) ? "-"
+      : `${d.return_pct >= 0 ? "+" : ""}${d.return_pct.toFixed(1)}%`;
+    const name = e[0].replace("KRW-", "");
+    const tag = STATE.delisted.has(e[0])
+      ? ' <span style="font-size:10px;color:var(--neg);border:1px solid var(--neg);border-radius:3px;padding:0 3px;">상폐</span>' : "";
+    return `<tr>
+      <td>${i + 1}</td>
+      <td>${name}${tag}</td>
+      <td>${ab}</td>
+      <td>${as}</td>
+      <td class="${e[1] >= 0 ? 'pos' : 'neg'}">${signed(e[1])}원</td>
+      <td class="${e[1] >= 0 ? 'pos' : 'neg'}">${pct}</td>
+    </tr>`;
+  };
+  // 양수만 수익 랭킹, 음수만 손해 랭킹 (0 부근 잡것 제외)
+  const tops = sortedTop.filter(e => e[1] > 0);
+  const bottoms = sortedBottom.filter(e => e[1] < 0);
+  const renderSide = (side, list) => {
+    const n = Math.min(STATE.rankShow[side], list.length);
+    document.querySelector(`#rank-${side} tbody`).innerHTML = list.slice(0, n).map(row).join("");
+    const btn = document.querySelector(`.rank-more[data-side="${side}"]`);
+    if (n < list.length) {
+      btn.style.display = "";
+      btn.textContent = `더보기 (${Math.min(10, list.length - n)}개 · ${n}/${list.length})`;
+    } else {
+      btn.style.display = "none";
+    }
+  };
+  renderSide("top", tops);
+  renderSide("bottom", bottoms);
+
+  // 타이틀 각주: 상폐 코인 있으면 부정확 경고
+  const note = document.getElementById("ranking-note");
+  const hasDelisted = [...tops, ...bottoms].some(e => STATE.delisted.has(e[0]));
+  note.textContent = hasDelisted
+    ? "· 시점시세 손익 기준 · ⚠ 상폐 코인은 시세 조회 불가로 부정확할 수 있음"
+    : "· 시점시세 손익 기준";
+}
+
+// 실제 지갑 입출금 내역 (wallet.out_detail/in_detail) — 위 '지갑' 그룹과 동일 출처.
+function renderTransfers() {
+  const panel = document.getElementById("transfers-panel");
+  const w = STATE.wallet;
+  if (!w) { panel.style.display = "none"; return; }
+
+  // 출금/입금을 코인별로 한 줄씩, 시점평가액 큰 순. 코인 필터 적용.
+  const sel = STATE.filter.markets;
+  const pass = (cur) => sel.size === 0 || sel.has("KRW-" + cur);
+  const rows = [];
+  for (const r of (w.out_detail || [])) {
+    if (pass(r.currency)) rows.push({ market: "KRW-" + r.currency, kind: "출금", amount: r.amount, count: r.count, value: r.value });
+  }
+  for (const r of (w.in_detail || [])) {
+    if (pass(r.currency)) rows.push({ market: "KRW-" + r.currency, kind: "입금", amount: r.amount, count: r.count, value: r.value });
+  }
+  rows.sort((a, b) => b.value - a.value);
+
+  const tbody = document.querySelector("#transfers tbody");
+  if (!rows.length) { panel.style.display = "none"; return; }
+  panel.style.display = "";
+  tbody.innerHTML = rows.map(r => {
+    const isOut = r.kind === "출금";
+    const tag = `<span class="${isOut ? 'neg' : 'pos'}">${r.kind}</span>`;
+    const valTxt = r.value > 0 ? fmt(r.value) + " 원" : "시세없음";
+    return `<tr>
+      <td>${r.market}</td>
+      <td style="text-align:left">${tag}</td>
+      <td>${fmtNum(r.amount, 4)}</td>
+      <td>${r.count}</td>
+      <td>${valTxt}</td>
+    </tr>`;
+  }).join("");
+}
+
 document.getElementById("reload").onclick = () => load(true);
 document.getElementById("refetch").onclick = () => load(false);
+document.getElementById("refetch-all").onclick = () => {
+  if (confirm("2017-10-24부터 현재까지 전체를 다시 긁어옵니다.\n거래가 많으면 수 분 걸릴 수 있어요. 진행할까요?")) {
+    load(false, "2017-10-24");
+  }
+};
 load(true);
 </script>
 </body>
