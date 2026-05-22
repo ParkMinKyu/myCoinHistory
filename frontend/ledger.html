@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>거래내역 (일자별) · myCoinHistory</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --border: #d0d7de;
+      --muted: #57606a;
+      --bg-soft: #f6f8fa;
+      --bg: #ffffff;
+      --pos: #1a7f37;
+      --neg: #cf222e;
+      --bid: #0969da;
+      --ask: #cf222e;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --border: #30363d;
+        --muted: #8b949e;
+        --bg-soft: #161b22;
+        --bg: #0d1117;
+        --pos: #3fb950;
+        --neg: #f85149;
+        --bid: #58a6ff;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { overflow-x: hidden; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
+      margin: 0; padding: 24px;
+      max-width: 1100px; margin-left: auto; margin-right: auto;
+      background: var(--bg);
+    }
+    @media (max-width: 600px) { body { padding: 12px; } }
+    a { color: var(--bid); }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    .status { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+    .header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+
+    /* 필터 바 */
+    .filters {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      display: grid;
+      gap: 10px;
+      position: sticky; top: 0; z-index: 5;
+      background: var(--bg);
+    }
+    .filter-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .filter-row .label { font-size: 12px; color: var(--muted); width: 50px; flex-shrink: 0; font-weight: 600; }
+    input[type="date"], input[type="search"], select {
+      padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px;
+      background: var(--bg-soft); font-size: 13px; color: inherit; font-family: inherit;
+    }
+    input[type="search"] { min-width: 160px; }
+    .chip {
+      padding: 4px 10px; border: 1px solid var(--border); border-radius: 14px;
+      background: transparent; cursor: pointer; font-size: 12px; font-weight: 600; color: var(--muted);
+    }
+    .chip.active { background: var(--bid); color: white; border-color: var(--bid); }
+
+    /* 일자 그룹 */
+    .day {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+    .day-head {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 14px; background: var(--bg-soft); cursor: pointer;
+      font-variant-numeric: tabular-nums;
+    }
+    .day-date { font-weight: 700; font-size: 14px; }
+    .day-meta { font-size: 12px; color: var(--muted); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .day-body { display: block; }
+    .day.collapsed .day-body { display: none; }
+    .caret { transition: transform .15s; display: inline-block; margin-right: 6px; color: var(--muted); }
+    .day.collapsed .caret { transform: rotate(-90deg); }
+
+    table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
+    th, td { padding: 7px 14px; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    th:first-child, td:first-child,
+    th:nth-child(2), td:nth-child(2) { text-align: left; }
+    th { background: transparent; font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .3px; }
+    tr:last-child td { border-bottom: none; }
+    .side {
+      font-weight: 700; font-size: 11px; padding: 1px 7px; border-radius: 3px; color: white; background: var(--bid);
+    }
+    .side.ask { background: var(--ask); }
+    .pos { color: var(--pos); }
+    .neg { color: var(--neg); }
+    .time { color: var(--muted); }
+    .empty { color: var(--muted); padding: 40px; text-align: center; }
+
+    .summary-bar {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 16px;
+    }
+    .stat { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--bg-soft); }
+    .stat .l { font-size: 11px; color: var(--muted); }
+    .stat .v { font-size: 18px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+    .toolbar-btns { display: flex; gap: 8px; }
+    button.tb { padding: 5px 10px; border: 1px solid var(--border); background: var(--bg-soft); border-radius: 6px; cursor: pointer; font-size: 12px; color: inherit; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>거래내역 (일자별)</h1>
+      <div class="status" id="status">로딩...</div>
+    </div>
+    <div><a href="./index.html">← 대시보드로</a></div>
+  </div>
+
+  <div class="summary-bar" id="summary"></div>
+
+  <div class="filters" id="filters" style="display:none;">
+    <div class="filter-row">
+      <span class="label">기간</span>
+      <input type="date" id="date-start" />
+      <span style="color:var(--muted)">~</span>
+      <input type="date" id="date-end" />
+      <button class="chip" id="clear-date">기간 해제</button>
+    </div>
+    <div class="filter-row">
+      <span class="label">구분</span>
+      <button class="chip side-f active" data-side="">전체</button>
+      <button class="chip side-f" data-side="bid">매수</button>
+      <button class="chip side-f" data-side="ask">매도</button>
+      <span class="label" style="width:auto; margin-left:8px;">코인</span>
+      <select id="market-sel"><option value="">전체</option></select>
+      <input type="search" id="q" placeholder="코인명 검색 (예: DOGE)" />
+    </div>
+    <div class="filter-row">
+      <span class="label">정렬</span>
+      <button class="chip sort-f active" data-sort="desc">최신순</button>
+      <button class="chip sort-f" data-sort="asc">오래된순</button>
+      <span style="flex:1"></span>
+      <div class="toolbar-btns">
+        <button class="tb" id="expand-all">전체 펼치기</button>
+        <button class="tb" id="collapse-all">전체 접기</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="list"></div>
+
+<script>
+const fmt = (n) => n == null ? "-" : Math.round(n).toLocaleString("ko-KR");
+const fmtVol = (n) => n == null ? "-" : Number(n).toLocaleString("ko-KR", { maximumFractionDigits: 8 });
+const signed = (n) => { if (n == null) return "-"; const v = Math.round(n); return (v > 0 ? "+" : "") + v.toLocaleString("ko-KR"); };
+
+const STATE = {
+  events: [],            // simulate 결과 (각 거래 + 그 시점 realized + 코인별 평단)
+  filter: { start: null, end: null, side: "", market: "", q: "" },
+  sort: "desc",
+  collapsed: new Set(),  // 접힌 날짜
+};
+
+async function fetchData() {
+  // 정적 캐시 우선, 없으면 API
+  try {
+    const r = await fetch("./result.json", { cache: "no-store" });
+    if (r.ok) return await r.json();
+  } catch (_) {}
+  const resp = await fetch("/api/pnl?cache=1");
+  const d = await resp.json();
+  if (!resp.ok) throw new Error(d.error || resp.statusText);
+  return d;
+}
+
+// 시간순 시뮬레이션: 평단·실현손익 계산 (backend/pnl.py 미러)
+function simulate(orders) {
+  const pos = {};
+  const out = [];
+  const sorted = orders.slice().sort((a, b) => a.created_at < b.created_at ? -1 : 1);
+  for (const o of sorted) {
+    if (!o.market.startsWith("KRW-")) continue;
+    if (!pos[o.market]) pos[o.market] = { vol: 0, cost: 0 };
+    const p = pos[o.market];
+    let realized = null, avg = p.vol > 0 ? p.cost / p.vol : 0;
+    if (o.side === "bid") {
+      p.vol += o.executed_volume;
+      p.cost += o.executed_funds + o.paid_fee;
+    } else if (o.side === "ask") {
+      const cost_out = avg * o.executed_volume;
+      realized = (o.executed_funds - o.paid_fee) - cost_out;
+      p.vol -= o.executed_volume;
+      p.cost -= cost_out;
+      if (p.vol <= 1e-12) { p.vol = 0; p.cost = 0; }
+    }
+    const price = o.executed_volume > 0 ? o.executed_funds / o.executed_volume : 0;
+    out.push({ ...o, realized, price, avg_at_trade: avg });
+  }
+  return out;
+}
+
+function applyFilter() {
+  const f = STATE.filter;
+  const q = f.q.trim().toUpperCase();
+  return STATE.events.filter(e => {
+    const date = e.created_at.slice(0, 10);
+    if (f.start && date < f.start) return false;
+    if (f.end && date > f.end) return false;
+    if (f.side && e.side !== f.side) return false;
+    if (f.market && e.market !== f.market) return false;
+    if (q && !e.market.replace("KRW-", "").toUpperCase().includes(q)) return false;
+    return true;
+  });
+}
+
+function render() {
+  const rows = applyFilter();
+  renderSummary(rows);
+
+  // 일자별 그룹
+  const byDay = {};
+  for (const e of rows) {
+    const d = e.created_at.slice(0, 10);
+    (byDay[d] = byDay[d] || []).push(e);
+  }
+  let dates = Object.keys(byDay).sort();
+  if (STATE.sort === "desc") dates.reverse();
+
+  const list = document.getElementById("list");
+  if (!dates.length) {
+    list.innerHTML = '<div class="empty">조건에 맞는 거래가 없습니다.</div>';
+    return;
+  }
+
+  list.innerHTML = dates.map(d => {
+    const items = byDay[d].slice().sort((a, b) =>
+      STATE.sort === "desc" ? (a.created_at < b.created_at ? 1 : -1) : (a.created_at < b.created_at ? -1 : 1));
+    let buy = 0, sell = 0, realized = 0, hasRealized = false;
+    for (const e of byDay[d]) {
+      if (e.side === "bid") buy += e.executed_funds;
+      else if (e.side === "ask") { sell += e.executed_funds; if (e.realized != null) { realized += e.realized; hasRealized = true; } }
+    }
+    const collapsed = STATE.collapsed.has(d) ? "collapsed" : "";
+    const realizedHtml = hasRealized
+      ? `<span>일 실현 <span class="${realized >= 0 ? 'pos' : 'neg'}">${signed(realized)}원</span></span>` : "";
+    const rowsHtml = items.map(e => {
+      const m = e.market.replace("KRW-", "");
+      const t = e.created_at.slice(11, 16);
+      const sideKo = e.side === "bid" ? "매수" : "매도";
+      const realizedCell = e.side === "ask" && e.realized != null
+        ? `<span class="${e.realized >= 0 ? 'pos' : 'neg'}">${signed(e.realized)}</span>` : "-";
+      return `<tr>
+        <td class="time">${t}</td>
+        <td><strong>${m}</strong></td>
+        <td><span class="side ${e.side === 'ask' ? 'ask' : ''}">${sideKo}</span></td>
+        <td>${fmtVol(e.executed_volume)}</td>
+        <td>${fmt(e.price)}</td>
+        <td>${fmt(e.executed_funds)}</td>
+        <td>${fmt(e.paid_fee)}</td>
+        <td>${realizedCell}</td>
+      </tr>`;
+    }).join("");
+    return `<div class="day ${collapsed}" data-date="${d}">
+      <div class="day-head" data-toggle="${d}">
+        <div class="day-date"><span class="caret">▾</span>${d} <span style="font-weight:400;color:var(--muted)">(${byDay[d].length}건)</span></div>
+        <div class="day-meta">
+          <span>매수 ${fmt(buy)}</span>
+          <span>매도 ${fmt(sell)}</span>
+          ${realizedHtml}
+        </div>
+      </div>
+      <div class="day-body">
+        <table>
+          <thead><tr>
+            <th>시각</th><th>코인</th><th>구분</th><th>수량</th><th>체결가</th><th>거래금액</th><th>수수료</th><th>실현손익</th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join("");
+
+  // 토글 핸들러
+  list.querySelectorAll(".day-head").forEach(h => {
+    h.onclick = () => {
+      const d = h.dataset.toggle;
+      const el = h.closest(".day");
+      el.classList.toggle("collapsed");
+      if (el.classList.contains("collapsed")) STATE.collapsed.add(d);
+      else STATE.collapsed.delete(d);
+    };
+  });
+}
+
+function renderSummary(rows) {
+  let buy = 0, sell = 0, realized = 0, fee = 0, nbuy = 0, nsell = 0;
+  for (const e of rows) {
+    fee += e.paid_fee || 0;
+    if (e.side === "bid") { buy += e.executed_funds; nbuy++; }
+    else if (e.side === "ask") { sell += e.executed_funds; nsell++; if (e.realized != null) realized += e.realized; }
+  }
+  const cards = [
+    ["거래 건수", rows.length.toLocaleString("ko-KR") + "건", ""],
+    ["매수 합계", fmt(buy) + "원", ""],
+    ["매도 합계", fmt(sell) + "원", ""],
+    ["실현손익 합계", signed(realized) + "원", realized >= 0 ? "pos" : "neg"],
+    ["수수료 합계", fmt(fee) + "원", "neg"],
+  ];
+  document.getElementById("summary").innerHTML = cards.map(([l, v, cls]) =>
+    `<div class="stat"><div class="l">${l}</div><div class="v ${cls}">${v}</div></div>`).join("");
+}
+
+function setupFilters() {
+  // 코인 select
+  const markets = [...new Set(STATE.events.map(e => e.market))].sort();
+  const sel = document.getElementById("market-sel");
+  sel.innerHTML = '<option value="">전체</option>' +
+    markets.map(m => `<option value="${m}">${m.replace("KRW-", "")}</option>`).join("");
+  sel.onchange = () => { STATE.filter.market = sel.value; render(); };
+
+  document.getElementById("q").oninput = (e) => { STATE.filter.q = e.target.value; render(); };
+  document.getElementById("date-start").onchange = (e) => { STATE.filter.start = e.target.value || null; render(); };
+  document.getElementById("date-end").onchange = (e) => { STATE.filter.end = e.target.value || null; render(); };
+  document.getElementById("clear-date").onclick = () => {
+    STATE.filter.start = STATE.filter.end = null;
+    document.getElementById("date-start").value = "";
+    document.getElementById("date-end").value = "";
+    render();
+  };
+
+  document.querySelectorAll(".side-f").forEach(b => b.onclick = () => {
+    document.querySelectorAll(".side-f").forEach(x => x.classList.remove("active"));
+    b.classList.add("active");
+    STATE.filter.side = b.dataset.side;
+    render();
+  });
+  document.querySelectorAll(".sort-f").forEach(b => b.onclick = () => {
+    document.querySelectorAll(".sort-f").forEach(x => x.classList.remove("active"));
+    b.classList.add("active");
+    STATE.sort = b.dataset.sort;
+    render();
+  });
+
+  document.getElementById("expand-all").onclick = () => { STATE.collapsed.clear(); render(); };
+  document.getElementById("collapse-all").onclick = () => {
+    const rows = applyFilter();
+    for (const e of rows) STATE.collapsed.add(e.created_at.slice(0, 10));
+    render();
+  };
+}
+
+async function load() {
+  const status = document.getElementById("status");
+  let data;
+  try { data = await fetchData(); }
+  catch (e) { status.textContent = "에러: " + e.message; return; }
+
+  const orders = data.all_orders || [];
+  if (!orders.length) {
+    status.textContent = "거래 데이터가 없습니다. 대시보드에서 '업비트에서 새로' 또는 '전체 긁어오기'를 먼저 실행하세요.";
+    return;
+  }
+  STATE.events = simulate(orders);
+  const tag = data._mock ? " · MOCK 데이터" : "";
+  const first = STATE.events[0]?.created_at.slice(0, 10);
+  const last = STATE.events[STATE.events.length - 1]?.created_at.slice(0, 10);
+  status.textContent = `총 ${STATE.events.length.toLocaleString("ko-KR")}건 · ${first} ~ ${last}${tag} · ⚠ 2021-01 이전 매수기록 누락으로 실현손익은 부정확`;
+
+  document.getElementById("filters").style.display = "";
+  setupFilters();
+  render();
+}
+
+load();
+</script>
+</body>
+</html>
