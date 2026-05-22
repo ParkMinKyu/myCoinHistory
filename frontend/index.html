@@ -248,6 +248,10 @@
       <input type="date" id="date-end" />
     </div>
     <div class="filter-row">
+      <span class="label">연도</span>
+      <span id="year-chips" style="display:contents;"></span>
+    </div>
+    <div class="filter-row">
       <span class="label">코인</span>
       <button class="chip market-all active" data-market="">전체</button>
       <span id="market-chips" style="display: contents;"></span>
@@ -629,7 +633,7 @@ function setupFilters() {
   // 기간 프리셋
   document.querySelectorAll(".chip.period").forEach(btn => {
     btn.onclick = () => {
-      document.querySelectorAll(".chip.period").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".chip.period, .chip.year").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       const today = new Date();
       const end = today.toISOString().slice(0, 10);
@@ -651,13 +655,35 @@ function setupFilters() {
 
   // 사용자 지정 날짜
   const onDateChange = () => {
-    document.querySelectorAll(".chip.period").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".chip.period, .chip.year").forEach(b => b.classList.remove("active"));
     STATE.filter.start = document.getElementById("date-start").value || null;
     STATE.filter.end = document.getElementById("date-end").value || null;
     renderAll();
   };
   document.getElementById("date-start").onchange = onDateChange;
   document.getElementById("date-end").onchange = onDateChange;
+
+  // 연도 칩: 거래 시작 연도 ~ 현재. 클릭하면 그 해 1/1~12/31.
+  const years = STATE.events.map(e => +e.created_at.slice(0, 4)).filter(y => y);
+  if (years.length) {
+    const y0 = Math.min(...years), y1 = new Date().getFullYear();
+    const host = document.getElementById("year-chips");
+    const yrs = [];
+    for (let y = y0; y <= y1; y++) yrs.push(y);
+    host.innerHTML = yrs.map(y => `<button class="chip year" data-year="${y}">${y}</button>`).join("");
+    document.querySelectorAll(".chip.year").forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll(".chip.period, .chip.year").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        const y = btn.dataset.year;
+        STATE.filter.start = `${y}-01-01`;
+        STATE.filter.end = `${y}-12-31`;
+        document.getElementById("date-start").value = STATE.filter.start;
+        document.getElementById("date-end").value = STATE.filter.end;
+        renderAll();
+      };
+    });
+  }
 
   // 기본: 전체 기간 활성
   document.querySelector('.chip.period[data-period="all"]').classList.add("active");
