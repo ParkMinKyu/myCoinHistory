@@ -43,17 +43,26 @@ class CalcResult:
     per_market: dict[str, MarketStat] = field(default_factory=dict)
     daily_trades: dict[str, int] = field(default_factory=dict)  # date -> count
     skipped: list[dict] = field(default_factory=list)
+    # 외부 전송(입출금)이 섞인 코인을 제외한 실현손익. 전송 코인은 처분이 거래소
+    # 밖에서 일어나 평단법이 무의미하므로, 이게 더 신뢰할 수 있는 거래 손익이다.
+    realized_clean_total: float = 0.0
+    transfer_markets: list[str] = field(default_factory=list)
 
 
-def calc_pnl(orders: Iterable[dict]) -> CalcResult:
-    """업비트 closed orders 리스트(state=done) → 일자별 누적 실현손익.
+def calc_pnl(orders: Iterable[dict], transfer_markets: set[str] | None = None) -> CalcResult:
+    """업비트 closed orders 리스트 → 일자별 누적 실현손익.
 
     - KRW 마켓만 처리 (BTC/USDT 마켓은 별도 환산 필요해 1차 MVP 제외)
     - executed_funds = 체결 KRW 합계 (수수료 제외)
     - paid_fee = 수수료
     - 매수 시 원가 += executed_funds + paid_fee
     - 매도 시 실현손익 = (executed_funds - paid_fee) - avg * executed_volume
+
+    transfer_markets: 외부 입출금이 있는 마켓 집합 (예: {"KRW-XRP"}). 이 코인은
+    거래소 밖 처분이 섞여 평단법 손익이 왜곡되므로 realized_clean_total에서 뺀다.
+    (realized_total은 전체 그대로 — 비교용)
     """
+    transfer_markets = transfer_markets or set()
     sorted_orders = sorted(orders, key=lambda o: o.get("created_at", ""))
     positions: dict[str, Position] = defaultdict(Position)
     daily_realized: dict[str, float] = defaultdict(float)
@@ -61,6 +70,7 @@ def calc_pnl(orders: Iterable[dict]) -> CalcResult:
     per_market: dict[str, MarketStat] = {}
     skipped: list[dict] = []
     realized_total = 0.0
+    realized_clean_total = 0.0
     trades = 0
 
     for o in sorted_orders:
@@ -99,6 +109,8 @@ def calc_pnl(orders: Iterable[dict]) -> CalcResult:
             realized = net_in - cost_out
             daily_realized[date_str] += realized
             realized_total += realized
+            if market not in transfer_markets:
+                realized_clean_total += realized
             ms.realized += realized
             ms.sell_funds += net_in
             pos.volume -= executed_volume
@@ -124,6 +136,8 @@ def calc_pnl(orders: Iterable[dict]) -> CalcResult:
         per_market=per_market,
         daily_trades=dict(daily_trades),
         skipped=skipped,
+        realized_clean_total=realized_clean_total,
+        transfer_markets=sorted(transfer_markets),
     )
 
 
