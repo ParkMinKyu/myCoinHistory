@@ -477,16 +477,19 @@ function aggregate() {
     dailyR[date] = (dailyR[date] || 0) + e.realized;
     dailyT[date] = (dailyT[date] || 0) + 1;
     if (!perMarket[e.market]) {
-      perMarket[e.market] = { market: e.market, realized: 0, trades: 0, wins: 0, losses: 0, buy_funds: 0, sell_funds: 0 };
+      perMarket[e.market] = { market: e.market, realized: 0, trades: 0, wins: 0, losses: 0,
+        buy_funds: 0, sell_funds: 0, buy_vol: 0, sell_vol: 0 };
     }
     const pm = perMarket[e.market];
     pm.realized += e.realized;
     pm.trades += 1;
     if (e.side === "bid") {
       pm.buy_funds += e.executed_funds + e.paid_fee;
+      pm.buy_vol += e.executed_volume;
       nBuy++; sumBuy += e.executed_funds;
     } else if (e.side === "ask") {
       pm.sell_funds += e.executed_funds - e.paid_fee;
+      pm.sell_vol += e.executed_volume;
       nSell++; sumSell += e.executed_funds;
       if (e.realized > 0) { wins.push(e.realized); pm.wins += 1; }
       else if (e.realized < 0) { losses.push(e.realized); pm.losses += 1; }
@@ -1228,7 +1231,8 @@ function renderRanking() {
       const netCash = pm.sell_funds - pm.buy_funds;  // 기간 순현금 손익
       perMarket[pm.market] = netCash;
       det[pm.market] = {
-        avg_buy_price: 0, avg_sell_price: 0,  // 기간 평균단가는 생략(- 표시)
+        avg_buy_price: pm.buy_vol > 0 ? pm.buy_funds / pm.buy_vol : 0,
+        avg_sell_price: pm.sell_vol > 0 ? pm.sell_funds / pm.sell_vol : 0,
         return_pct: pm.buy_funds > 0 ? netCash / pm.buy_funds * 100 : null,
       };
     }
