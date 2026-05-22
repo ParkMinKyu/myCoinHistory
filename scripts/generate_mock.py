@@ -38,12 +38,24 @@ def main() -> None:
     holdings = {m: 0.0 for m, _ in MARKETS_INIT_PRICE}
     orders: list[dict] = []
 
+    # 코인마다 다른 추세 (일부는 우상향, 일부는 하락/횡보) → 손해도 자연스럽게 발생.
+    # drift: 일평균 변동 편향. 양수면 오르는 추세, 음수면 내리는 추세.
+    drift = {
+        "KRW-BTC": 0.0010,   # 우상향
+        "KRW-ETH": 0.0006,   # 완만한 상승
+        "KRW-XRP": -0.0004,  # 약세
+        "KRW-SOL": 0.0015,   # 강한 상승
+        "KRW-DOGE": -0.0012, # 하락 (손해 코인)
+        "KRW-ADA": -0.0007,  # 하락
+    }
+
     cursor = datetime(2018, 1, 1, tzinfo=KST)
     end = datetime(2026, 5, 6, tzinfo=KST)
 
     while cursor < end:
         for m in prices:
-            prices[m] *= random.uniform(0.97, 1.035)
+            # 추세(drift) + 양방향 변동성(±4%) → 코인별로 오르거나 내림
+            prices[m] *= (1 + drift[m]) * random.uniform(0.96, 1.04)
             if prices[m] < 1:
                 prices[m] = 1.0
 
@@ -137,13 +149,14 @@ def main() -> None:
     total_sell = sum(ms.sell_funds for ms in result.per_market.values())
     trade_fee = sum(float(o["paid_fee"]) for o in orders)
 
-    # 현금: 입금=구매액의 1.1배 가정, 출금=판매액. 데모용 그럴듯한 값.
-    mock_in = total_buy * 1.1
+    # 현금(데모용): 잔고 0 가정 시 현금순손익 ≈ 실현손익이 되도록 역산.
+    # 출금 = 판매액, 입금 = 출금 - 실현손익 (그래야 출금-입금 = 실현손익).
     mock_out = total_sell
+    mock_in = mock_out - result.realized_total
     cash = {
         "total_in": mock_in,
         "total_out": mock_out,
-        "net": mock_in - mock_out,
+        "net": mock_out - mock_in,  # = 실현손익
         "withdraw_fee": 30000.0,
         "deposits": [],
         "withdraws": [],
@@ -172,8 +185,8 @@ def main() -> None:
         }
     market_pnl = {"total": sum(mp_per.values()), "per_market": mp_per, "detail": mp_detail}
 
-    # 데모용: DOGE를 상폐 코인으로 표시 (뱃지/각주 시연용)
-    delisted = ["KRW-DOGE"] if "KRW-DOGE" in result.per_market else []
+    # mock 6종은 전부 실제 상장 코인 → 상폐 없음. (시연용 가짜 상폐 표시 안 함)
+    delisted = []
 
     payload = {
         "trades_count": result.trades_count,
