@@ -10,6 +10,7 @@ import json
 import random
 import sys
 import uuid
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -131,10 +132,62 @@ def main() -> None:
         for o in sorted(orders, key=lambda o: o["created_at"])
     ]
 
+    # --- 데모용 파생 필드 (Live 모드의 cash/wallet/market_pnl/delisted 흉내) ---
+    total_buy = sum(ms.buy_funds for ms in result.per_market.values())
+    total_sell = sum(ms.sell_funds for ms in result.per_market.values())
+    trade_fee = sum(float(o["paid_fee"]) for o in orders)
+
+    # 현금: 입금=구매액의 1.1배 가정, 출금=판매액. 데모용 그럴듯한 값.
+    mock_in = total_buy * 1.1
+    mock_out = total_sell
+    cash = {
+        "total_in": mock_in,
+        "total_out": mock_out,
+        "net": mock_in - mock_out,
+        "withdraw_fee": 30000.0,
+        "deposits": [],
+        "withdraws": [],
+    }
+
+    # 코인별 시점시세 손익: mock은 전송이 없으니 평단법 실현손익 = 시점시세 손익.
+    # 평균 매수/매도가와 수익률도 per_market에서 산출.
+    mp_detail = {}
+    mp_per = {}
+    buy_qty = defaultdict(float); buy_krw = defaultdict(float)
+    sell_qty = defaultdict(float); sell_krw = defaultdict(float)
+    for o in orders:
+        m = o["market"]; ev = float(o["executed_volume"]); ef = float(o["executed_funds"])
+        if o["side"] == "bid":
+            buy_qty[m] += ev; buy_krw[m] += ef
+        else:
+            sell_qty[m] += ev; sell_krw[m] += ef
+    for m, ms in result.per_market.items():
+        mp_per[m] = ms.realized
+        mp_detail[m] = {
+            "pnl": ms.realized,
+            "avg_buy_price": (buy_krw[m] / buy_qty[m]) if buy_qty[m] > 0 else 0.0,
+            "avg_sell_price": (sell_krw[m] / sell_qty[m]) if sell_qty[m] > 0 else 0.0,
+            "buy_krw": ms.buy_funds,
+            "return_pct": (ms.realized / ms.buy_funds * 100) if ms.buy_funds > 0 else None,
+        }
+    market_pnl = {"total": sum(mp_per.values()), "per_market": mp_per, "detail": mp_detail}
+
+    # 데모용: DOGE를 상폐 코인으로 표시 (뱃지/각주 시연용)
+    delisted = ["KRW-DOGE"] if "KRW-DOGE" in result.per_market else []
+
     payload = {
         "trades_count": result.trades_count,
         "realized_total": result.realized_total,
+        "realized_clean_total": result.realized_total,  # mock은 전송 없음 → 동일
+        "transfer_markets": [],
         "unrealized_total": sum(unreal.values()),
+        "cash": cash,
+        "wallet": None,           # mock은 코인 전송 없음
+        "real_balances": {m: p.volume for m, p in result.positions.items() if p.volume > 0},
+        "market_pnl": market_pnl,
+        "delisted": delisted,
+        "trade_fee": trade_fee,
+        "trade_fee_clean": trade_fee,
         "daily": [
             {"date": d.date, "realized": d.realized, "cumulative": d.cumulative_realized}
             for d in result.daily
