@@ -246,12 +246,14 @@ def _load_market_pnl(orders: list[dict], use_cache: bool) -> dict:
         evs.sort(key=lambda e: e[0] or "")
         vol = cost = realized = 0.0
         buy_vol = buy_krw = sell_vol = sell_krw = 0.0  # 평균 단가용 (실제 KRW 거래만)
+        trades = 0  # KRW 매수/매도 체결 건수 (입출금 제외)
         for ts, side, qty, funds, fee in evs:
             if side == "bid":
                 vol += qty
                 cost += funds + fee
                 buy_vol += qty
                 buy_krw += funds
+                trades += 1
             elif side == "in":  # 입금 = 시점시세 매수 (단가 통계엔 제외)
                 vol += qty
                 cost += price(m, ts) * qty
@@ -262,6 +264,7 @@ def _load_market_pnl(orders: list[dict], use_cache: bool) -> dict:
                     out_qty = qty
                     sell_vol += qty
                     sell_krw += funds
+                    trades += 1
                 else:  # 출금 = 시점시세 처분 (수수료분도 원가에서 차감)
                     realized += price(m, ts) * qty - avg * qty
                     out_qty = qty + fee
@@ -272,6 +275,7 @@ def _load_market_pnl(orders: list[dict], use_cache: bool) -> dict:
         per_market[m] = realized
         detail[m] = {
             "pnl": realized,
+            "trades": trades,  # KRW 매수/매도 체결 건수
             "avg_buy_price": (buy_krw / buy_vol) if buy_vol > 0 else 0.0,
             "avg_sell_price": (sell_krw / sell_vol) if sell_vol > 0 else 0.0,
             "buy_krw": buy_krw,  # 투자 원가 (현금 매수액) — 수익률 계산용

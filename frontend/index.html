@@ -271,7 +271,7 @@
       <div>
         <div style="font-size:12px;font-weight:700;color:var(--pos);margin-bottom:6px;">📈 수익 순위</div>
         <table class="rank-table" id="rank-top">
-          <thead><tr><th></th><th>코인</th><th>평균매수</th><th>평균매도</th><th>손익</th><th>수익률</th></tr></thead>
+          <thead><tr><th></th><th>코인</th><th>거래</th><th>평균매수</th><th>평균매도</th><th>손익</th><th>수익률</th></tr></thead>
           <tbody></tbody>
         </table>
         <button class="rank-more" data-side="top" style="display:none;">더보기 (10개)</button>
@@ -279,7 +279,7 @@
       <div>
         <div style="font-size:12px;font-weight:700;color:var(--neg);margin-bottom:6px;">📉 손해 순위</div>
         <table class="rank-table" id="rank-bottom">
-          <thead><tr><th></th><th>코인</th><th>평균매수</th><th>평균매도</th><th>손익</th><th>수익률</th></tr></thead>
+          <thead><tr><th></th><th>코인</th><th>거래</th><th>평균매수</th><th>평균매도</th><th>손익</th><th>수익률</th></tr></thead>
           <tbody></tbody>
         </table>
         <button class="rank-more" data-side="bottom" style="display:none;">더보기 (10개)</button>
@@ -1257,6 +1257,7 @@ function renderRanking() {
       const netCash = pm.sell_funds - pm.buy_funds;  // 기간 순현금 손익
       perMarket[pm.market] = netCash;
       det[pm.market] = {
+        trades: pm.trades,
         avg_buy_price: pm.buy_vol > 0 ? pm.buy_funds / pm.buy_vol : 0,
         avg_sell_price: pm.sell_vol > 0 ? pm.sell_funds / pm.sell_vol : 0,
         return_pct: pm.buy_funds > 0 ? netCash / pm.buy_funds * 100 : null,
@@ -1291,11 +1292,13 @@ function renderRanking() {
     const pct = (d.return_pct == null) ? "-"
       : `${d.return_pct >= 0 ? "+" : ""}${d.return_pct.toFixed(1)}%`;
     const name = e[0].replace("KRW-", "");
+    const trades = d.trades != null ? d.trades + "회" : "-";
     const tag = STATE.delisted.has(e[0])
       ? ' <span style="font-size:10px;color:var(--neg);border:1px solid var(--neg);border-radius:3px;padding:0 3px;">상폐</span>' : "";
     return `<tr>
       <td>${i + 1}</td>
       <td>${name}${tag}</td>
+      <td>${trades}</td>
       <td>${ab}</td>
       <td>${as}</td>
       <td class="${e[1] >= 0 ? 'pos' : 'neg'}">${signed(e[1])}원</td>
