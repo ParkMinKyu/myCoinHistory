@@ -61,6 +61,12 @@
     .pos { color: var(--pos); }
     .neg { color: var(--neg); }
 
+    #demo-banner {
+      background: #bf8700; color: #fff; text-align: center;
+      padding: 8px 16px; border-radius: 8px; margin-bottom: 16px;
+      font-size: 13px; font-weight: 700; letter-spacing: .3px;
+    }
+
     .panel {
       border: 1px solid var(--border);
       border-radius: 10px;
@@ -213,6 +219,9 @@
   </style>
 </head>
 <body>
+  <div id="demo-banner" style="display:none;">
+    🧪 DEMO · 가상 데이터입니다 (실제 거래내역 아님)
+  </div>
   <div class="header">
     <div>
       <h1>myCoinHistory</h1>
@@ -666,7 +675,10 @@ async function load(useCache, startDate) {
   }
 
   // 데이터 → 상태
-  STATE.meta = { mock: !!data._mock, source };
+  STATE.meta = { mock: !!data._mock, source, demo: !!data._demo };
+  // DEMO 배너 (가상 데이터임을 명확히)
+  const banner = document.getElementById("demo-banner");
+  if (banner) banner.style.display = data._demo ? "" : "none";
   if (data.all_orders) {
     const sim = simulate(data.all_orders);
     STATE.events = sim.events;

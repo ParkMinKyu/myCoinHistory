@@ -25,12 +25,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Generate mock result.json
-        run: python scripts/generate_mock.py
+      # frontend/result.json (가상화된 데모 데이터)을 그대로 배포.
+      # generate_demo_from_real.py는 실거래 캐시가 필요해 CI에서 못 돌리므로,
+      # 로컬에서 생성·커밋한 result.json을 사용한다.
 
       - uses: actions/configure-pages@v5
 
