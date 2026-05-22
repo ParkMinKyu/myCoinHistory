@@ -384,16 +384,27 @@ const TIMELINE_PAGE = 100;
 let _timelineObserver = null;
 
 async function fetchData(useCache, startDate) {
+  // Flask 서버(Live 모드)가 살아있으면 API 우선 — 커밋된 데모 result.json보다
+  // 본인 실거래를 보여줘야 함. 서버 없으면(정적/Pages) result.json(데모) 사용.
+  let liveServer = false;
   try {
-    const r = await fetch("./result.json", { cache: "no-store" });
-    if (r.ok) return { data: await r.json(), source: "static" };
+    const h = await fetch("/api/health", { cache: "no-store" });
+    liveServer = h.ok;
   } catch (_) {}
-  let url = `/api/pnl?cache=${useCache ? 1 : 0}`;
-  if (startDate) url += `&start=${encodeURIComponent(startDate)}`;
-  const resp = await fetch(url);
-  const d = await resp.json();
-  if (!resp.ok) throw new Error(d.error || resp.statusText);
-  return { data: d, source: "api" };
+
+  if (liveServer) {
+    let url = `/api/pnl?cache=${useCache ? 1 : 0}`;
+    if (startDate) url += `&start=${encodeURIComponent(startDate)}`;
+    const resp = await fetch(url);
+    const d = await resp.json();
+    if (!resp.ok) throw new Error(d.error || resp.statusText);
+    return { data: d, source: "api" };
+  }
+
+  // 정적 모드: 커밋된 result.json (데모)
+  const r = await fetch("./result.json", { cache: "no-store" });
+  if (r.ok) return { data: await r.json(), source: "static" };
+  throw new Error("데이터 없음: Flask 서버를 띄우거나 result.json을 생성하세요");
 }
 
 // 시간순 시뮬레이션: 평단/실현 정확히 계산 (backend/pnl.py의 calc_pnl 미러)
