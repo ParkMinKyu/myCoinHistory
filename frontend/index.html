@@ -1215,19 +1215,21 @@ function renderRanking() {
   const f = STATE.filter;
   const dateFiltered = !!(f.start || f.end);
 
-  // 기간 필터가 걸리면 그 기간 거래만으로 계산한 per_market(평단법) 사용.
-  // 안 걸리면 전체 시점시세 손익(marketPnl) 사용 (전송 보정 더 정확).
+  // 기간 필터가 걸리면 그 기간 '순현금(매도-매수)' 기준 사용.
+  //   (평단법은 이월 평단이 전송 코인에서 오염돼 손익이 부풀려짐. 순현금은 평단을
+  //    안 써서 그 기간 현금 손익을 정직하게 보여줌.)
+  // 안 걸리면 전체 시점시세 손익(marketPnl) 사용.
   let perMarket, det;
   if (dateFiltered) {
     const agg = aggregate();  // 기간+코인 필터 반영됨
     perMarket = {};
     det = {};
     for (const pm of agg.per_market) {
-      perMarket[pm.market] = pm.realized;
-      const bv = pm.buy_funds, sv = pm.sell_funds;
+      const netCash = pm.sell_funds - pm.buy_funds;  // 기간 순현금 손익
+      perMarket[pm.market] = netCash;
       det[pm.market] = {
         avg_buy_price: 0, avg_sell_price: 0,  // 기간 평균단가는 생략(- 표시)
-        return_pct: pm.buy_funds > 0 ? pm.realized / pm.buy_funds * 100 : null,
+        return_pct: pm.buy_funds > 0 ? netCash / pm.buy_funds * 100 : null,
       };
     }
   } else {
@@ -1288,7 +1290,7 @@ function renderRanking() {
   renderSide("bottom", bottoms);
 
   // 타이틀 각주: 기간 필터 시 평단법, 아니면 시점시세 + 상폐 경고
-  const base = dateFiltered ? "· 기간 내 실현손익(평단법)" : "· 시점시세 손익 기준";
+  const base = dateFiltered ? "· 기간 내 순현금 손익(매도−매수)" : "· 시점시세 손익 기준";
   const hasDelisted = [...tops, ...bottoms].some(e => STATE.delisted.has(e[0]));
   note.textContent = hasDelisted ? base + " · ⚠ 상폐 코인 부정확할 수 있음" : base;
 }
