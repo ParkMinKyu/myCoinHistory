@@ -178,6 +178,7 @@ def main() -> None:
         mp_per[m] = ms.realized
         mp_detail[m] = {
             "pnl": ms.realized,
+            "trades": ms.trades,
             "avg_buy_price": (buy_krw[m] / buy_qty[m]) if buy_qty[m] > 0 else 0.0,
             "avg_sell_price": (sell_krw[m] / sell_qty[m]) if sell_qty[m] > 0 else 0.0,
             "buy_krw": ms.buy_funds,
